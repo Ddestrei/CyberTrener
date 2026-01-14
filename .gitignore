@@ -1,0 +1,19 @@
+# --- Virtual Environments ---
+venv/
+.venv/
+env/
+.env/
+
+# --- Directories and config fils for IDEs ---
+# VS Code
+.vscode/
+# PyCharm / IntelliJ (JetBrains)
+.idea/
+
+# --- Multimedia files ---
+*.mp3
+*.mp4
+
+# --- Temporary Python files ---
+__pycache__/
+*.pyc
