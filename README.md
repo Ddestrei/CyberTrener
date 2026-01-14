@@ -29,7 +29,7 @@ CyberTrener/
 │   ├── exercises/             # Logic & Exercise Rules
 │   │   ├── base.py            # Abstract Base Class: State Machine (Waiting/Down/Up) & Counters
 │   │   ├── plank.py           
-│   │   ├── sit-ups.py         
+│   │   ├── sit_ups.py         
 │   │   ├── bicep_curl.py      
 │   │   ├── jumping_jack.py    
 │   │   └── ohp.py             
