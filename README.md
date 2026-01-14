@@ -3,7 +3,7 @@
 ## Installation 
 
 1. Clone the repo.
-2. In the project folder, create virtual environment ```python -m venv venv'''
+2. In the project folder, create virtual environment ```python -m venv venv```
 3. Activate the environment   
 Windows ```venv\Scripts\activate```   
 Linux ```source venv/bin/activate```
