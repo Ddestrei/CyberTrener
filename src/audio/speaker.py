@@ -6,6 +6,8 @@ import threading
 import queue
 import subprocess
 import time
+import os
+import sys
 
 class TextToSpeechManager:
     def __init__(self):
@@ -21,7 +23,10 @@ class TextToSpeechManager:
             phrase = self.queue.get()
             if phrase is None:
                 break
-            subprocess.call(["python3", "speak.py", phrase])
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            script_path = os.path.join(current_dir, "speak.py")
+
+            subprocess.call([sys.executable, script_path,phrase])
             self.queue.task_done()
 
     def stop(self):
