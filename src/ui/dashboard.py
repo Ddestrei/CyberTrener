@@ -63,7 +63,7 @@ def render_camera_controls(manager):
 
 def render_video_layout():
     """Przygotowuje układ strony (kolumny) i zwraca puste kontenery na wideo."""
-    st.title("Cyber Trener 2.0")
+    st.title("Cyber Trener")
     
     col1, col2 = st.columns(2)
     
