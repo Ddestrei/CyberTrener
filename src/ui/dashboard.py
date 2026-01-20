@@ -1,12 +1,5 @@
 import streamlit as st
-import cv2
-import datetime
 import numpy as np
-
-"""
-Moduł Dashboard: Odpowiada wyłącznie za wygląd aplikacji (UI).
-Nie zawiera logiki biznesowej ani obsługi sprzętu.
-"""
 
 def render_sidebar():
     """Renderuje logo i nagłówek panelu bocznego."""
@@ -66,8 +59,14 @@ def render_video_layout():
     """
     st.title("Cyber Trener")
     
-    col1, col2 = st.columns(2)
+    # Statystyki
+    render_stats_panel()
     
+    st.markdown("---")
+
+    # 2. Układ 2-kolumnowy Wideo
+    col1, col2 = st.columns(2)
+
     with col1:
         st.markdown("### Przod (Front)")
         ph_front = st.empty()
