@@ -47,13 +47,14 @@ class VideoThread(threading.Thread):
 
             # Próba otwarcia kamery z wybranym sterownikiem
             self.capture = cv2.VideoCapture(self.src, backend)
+            self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
             
             # [PERFORMANCE] Konfiguracja strumienia wideo.
             # 1. Wymuszenie rozdzielczości VGA (640x480).
             #    Dwie kamery HD na jednym kontrolerze USB często przekraczają przepustowość.
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            self.capture.set(cv2.CAP_PROP_FPS, 30)
+            self.capture.set(cv2.CAP_PROP_FPS, 60)
             
             # 2. [LATENCY] Ustawienie bufora na 1 klatkę.
             #    Kluczowe ustawienie! Mówimy sterownikowi, aby nie kolejkował starych klatek.

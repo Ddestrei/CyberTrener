@@ -1,5 +1,12 @@
 import streamlit as st
+import cv2
+import datetime
 import numpy as np
+
+"""
+Moduł Dashboard: Odpowiada wyłącznie za wygląd aplikacji (UI).
+Nie zawiera logiki biznesowej ani obsługi sprzętu.
+"""
 
 def render_sidebar():
     """Renderuje logo i nagłówek panelu bocznego."""
@@ -38,7 +45,7 @@ def render_camera_controls(manager):
         format_func=lambda x: options.get(x, str(x)), index=0, key='sf'
     )
     
-    # Selectbox: Wybór Kamery Bocznej (Domyślnie ostatnia dostępna)
+    # Selectbox: Wybór Kamery Bocznej
     def_side = len(sorted_ids) - 1 if len(sorted_ids) > 0 else 0
     sel_side = st.sidebar.selectbox(
         "Kamera Boczna (Side):", sorted_ids,
@@ -54,19 +61,10 @@ def render_camera_controls(manager):
 
 def render_video_layout():
     """
-    Przygotowuje układ strony (kolumny).
-    Tworzy i zwraca placeholdery, do których później wrzucamy obraz.
+    Przygotowuje układ strony (kolumny wideo).
     """
-    st.title("Cyber Trener")
-    
-    # Statystyki
-    render_stats_panel()
-    
-    st.markdown("---")
-
-    # 2. Układ 2-kolumnowy Wideo
     col1, col2 = st.columns(2)
-
+    
     with col1:
         st.markdown("### Przod (Front)")
         ph_front = st.empty()
@@ -81,18 +79,13 @@ def render_video_layout():
 
 def display_frame(placeholder, frame, status_msg=None):
     """
-    Wyświetla pojedynczą klatkę wideo w interfejsie Streamlit.
+    Wyświetla pojedynczą klatkę wideo.
     """
     if frame is not None:
-        # Konwersja BGR (OpenCV) -> RGB (Streamlit wymaga RGB)
         disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # use_container_width=True zapobiega zmianom rozmiaru okna
         placeholder.image(disp, channels="RGB", use_container_width=True)
             
     elif status_msg:
-        # Renderowanie czarnego ekranu z komunikatem, gdy brak sygnału
         blk = np.zeros((360, 640, 3), dtype=np.uint8)
         cv2.putText(blk, "NO SIGNAL", (200, 180), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-        
         placeholder.image(blk, channels="RGB", use_container_width=True)
