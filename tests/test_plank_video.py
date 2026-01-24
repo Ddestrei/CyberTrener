@@ -8,9 +8,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.processor.pose import PoseDetector
 from src.exercises.plank import Plank
+from src.utils.smoothing import LandmarkSmoother  # 1. Importujemy smoother
 
 # Configuration: List of tuples (video_path, expected_status)
-# Ensure these files exist in your media/test_videos/ directory
 VIDEO_CASES = [
     ("media/test_videos/plank_correct.mp4", "Good Form"),
     ("media/test_videos/plank_sagging.mp4", "Sagging"),
@@ -24,6 +24,10 @@ def analyze_video(video_path):
     """
     detector = PoseDetector(model_complexity=1)
     plank = Plank()
+    # 2. Inicjalizacja smoothera.
+    # Dla planku window_size=5-10 jest idealne, bo to ćwiczenie statyczne.
+    smoother = LandmarkSmoother(window_size=8)
+
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():
@@ -43,14 +47,18 @@ def analyze_video(video_path):
 
         landmarks = detector.detect(frame)
         if landmarks:
-            # Note: ExerciseBase logic might require update() or direct feedback
-            plank.update(landmarks)
-            feedback = plank.get_feedback(landmarks)
-            status = feedback["status"]
+            # 3. Wygładzanie punktów (redukcja drżenia kończyn na wideo)
+            smoothed_landmarks = smoother.update(landmarks)
 
-            if status in stats:
-                stats[status] += 1
-                stats["total_frames"] += 1
+            if smoothed_landmarks:
+                # 4. Przekazujemy wygładzone dane do logiki planku
+                plank.update(smoothed_landmarks)
+                feedback = plank.get_feedback(smoothed_landmarks)
+                status = feedback["status"]
+
+                if status in stats:
+                    stats[status] += 1
+                    stats["total_frames"] += 1
 
     cap.release()
     return stats
