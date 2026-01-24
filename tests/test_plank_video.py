@@ -10,11 +10,11 @@ from src.processor.pose import PoseDetector
 from src.exercises.plank import Plank
 
 # Configuration: List of tuples (video_path, expected_status)
-# Ensure these files exist in your assets/videos/ directory
+# Ensure these files exist in your media/test_videos/ directory
 VIDEO_CASES = [
-    ("assets/videos/plank_correct.mp4", "Good Form"),
-    ("assets/videos/plank_sagging.mp4", "Sagging"),
-    ("assets/videos/plank_piked.mp4", "Piked")
+    ("media/test_videos/plank_correct.mp4", "Good Form"),
+    ("media/test_videos/plank_sagging.mp4", "Sagging"),
+    ("media/test_videos/plank_piked.mp4", "Piked")
 ]
 
 
