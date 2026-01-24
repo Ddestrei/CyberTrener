@@ -6,36 +6,38 @@ class SitUp(ExerciseBase):
     def __init__(self):
         super().__init__()
         self.name = "Sit-up"
-        # Thresholds for sit-up phases
-        self.THRESHOLD_DOWN = 160.0  # Lying down (Start/End)
-        self.THRESHOLD_UP = 60.0  # Fully up (Peak)
+        # PROGI DOPASOWANE DO TWOICH LOGÓW:
+        self.THRESHOLD_SITTING = 110.0  # Góra (Siad) - w logach masz > 120
+        self.THRESHOLD_LYING = 50.0  # Dół (Leżenie) - w logach masz < 30
 
     def check_conditions(self, landmarks: list[dict[str, float]]) -> ExerciseState:
-        """
-        Monitors the Hip angle (Shoulder-Hip-Knee).
-        """
-        # Right side: Shoulder (12), Hip (24), Knee (26)
-        # Using right side as default for side-view video
-        angle = calculate_angle(landmarks[12], landmarks[24], landmarks[26])
+        raw_angle = calculate_angle(landmarks[12], landmarks[24], landmarks[26])
+        # Normalizacja do kąta wewnętrznego
+        angle = raw_angle if raw_angle <= 180 else 360 - raw_angle
+        print(f"DEBUG | State: {self.state.name} | Normalized Angle: {angle:.2f}")
 
-        # State Machine Logic
+        # Logika maszyny stanów dopasowana do Twojego nagrania:
         if self.state == ExerciseState.WAITING:
-            if angle > self.THRESHOLD_DOWN:
-                return ExerciseState.CONCENTRIC  # Ready to start or just started
+            # Zaczynamy test, gdy kąt jest wysoki (siedzisz lub zaczynasz ruch)
+            if angle > self.THRESHOLD_SITTING:
+                return ExerciseState.CONCENTRIC
 
         elif self.state == ExerciseState.CONCENTRIC:
-            if angle < self.THRESHOLD_UP:
-                return ExerciseState.ECCENTRIC  # Reached the top
+            # Schodzisz w dół do leżenia
+            if angle < self.THRESHOLD_LYING:
+                return ExerciseState.ECCENTRIC
 
         elif self.state == ExerciseState.ECCENTRIC:
-            if angle > self.THRESHOLD_DOWN:
+            # Wracasz w górę do siadu
+            if angle > self.THRESHOLD_SITTING:
                 self.reps_count += 1
-                return ExerciseState.CONCENTRIC  # Finished rep and ready for next
+                return ExerciseState.CONCENTRIC
 
         return self.state
 
     def get_feedback(self, landmarks: list[dict[str, float]]) -> dict:
-        angle = calculate_angle(landmarks[12], landmarks[24], landmarks[26])
+        raw_angle = calculate_angle(landmarks[12], landmarks[24], landmarks[26])
+        angle = raw_angle if raw_angle <= 180 else 360 - raw_angle
         return {
             "exercise": self.name,
             "reps": self.reps_count,

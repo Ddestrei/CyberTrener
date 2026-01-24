@@ -11,8 +11,8 @@ from src.exercises.situp import SitUp
 
 # Configuration: (video_path, expected_reps, description)
 VIDEO_CASES = [
-    ("assets/videos/situp_perfect.mp4", 5, "Perfect form - full range of motion"),
-    ("assets/videos/situp_shallow.mp4", 0, "Partial reps - should not be counted")
+    ("media/test_videos/situp_perfect.mp4", 5, "Perfect form - full range of motion"),
+    ("media/test_videos/situp_shallow.mp4", 0, "Partial reps - should not be counted")
 ]
 
 
