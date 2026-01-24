@@ -49,7 +49,7 @@ rpds-py==0.30.0
 six==1.17.0
 smmap==5.0.2
 sounddevice==0.5.3
-SpeechRecognition==3.14.5
+SpeechRecognition==3.14.4
 streamlit==1.52.2
 tenacity==9.1.2
 toml==0.10.2
@@ -59,3 +59,4 @@ tzdata==2025.3
 urllib3==2.6.3
 watchdog==6.0.0
 pyttsx3==2.91
+vosk==0.3.45

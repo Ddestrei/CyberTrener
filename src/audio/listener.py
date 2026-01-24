@@ -1,6 +1,5 @@
 import sounddevice as sd
 import speech_recognition as sr
-import numpy as np
 import threading
 import queue
 import json
@@ -50,7 +49,7 @@ class ExerciseListener(threading.Thread):
             print("Nasłuchiwanie komend...")
 
             while True:
-                data, overflow = stream.read(8000)
+                data, overflow = stream.read(4000)
                 if overflow:
                     continue
 
