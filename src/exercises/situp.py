@@ -6,38 +6,57 @@ class SitUp(ExerciseBase):
     def __init__(self):
         super().__init__()
         self.name = "Sit-up"
-        # PROGI DOPASOWANE DO TWOICH LOGÓW:
-        self.THRESHOLD_SITTING = 110.0  # Góra (Siad) - w logach masz > 120
-        self.THRESHOLD_LYING = 50.0  # Dół (Leżenie) - w logach masz < 30
+        # Progi kątowe oparte na Twoich logach:
+        # Siad (Góra) to ok. 128 stopni, Leżenie (Dół) to ok. 20 stopni.
+        self.THRESHOLD_SITTING = 110.0
+        self.THRESHOLD_LYING = 50.0
 
     def check_conditions(self, landmarks: list[dict[str, float]]) -> ExerciseState:
+        """
+        Analizuje kąt biodra i zarządza maszyną stanów.
+        Punkty: 12 (Ramię), 24 (Biodro), 26 (Kolano).
+        """
+        # Obliczamy kąt w biodrze
         raw_angle = calculate_angle(landmarks[12], landmarks[24], landmarks[26])
-        # Normalizacja do kąta wewnętrznego
+        # Normalizacja do zakresu 0-180
         angle = raw_angle if raw_angle <= 180 else 360 - raw_angle
-        print(f"DEBUG | State: {self.state.name} | Normalized Angle: {angle:.2f}")
 
-        # Logika maszyny stanów dopasowana do Twojego nagrania:
-        if self.state == ExerciseState.WAITING:
-            # Zaczynamy test, gdy kąt jest wysoki (siedzisz lub zaczynasz ruch)
-            if angle > self.THRESHOLD_SITTING:
-                return ExerciseState.CONCENTRIC
+        # DEBUG (opcjonalnie odkomentuj, by widzieć logi w konsoli)
+        # print(f"DEBUG | State: {self.state.name} | Angle: {angle:.2f}")
 
-        elif self.state == ExerciseState.CONCENTRIC:
-            # Schodzisz w dół do leżenia
+        # LOGIKA MASZYNY STANÓW
+
+        # 1. Startujemy lub szukamy ponownego położenia się (Faza CONCENTRIC)
+        if self.state == ExerciseState.WAITING or self.state == ExerciseState.CONCENTRIC:
             if angle < self.THRESHOLD_LYING:
+                # Użytkownik leży - przechodzimy do fazy oczekiwania na podniesienie (ECCENTRIC)
                 return ExerciseState.ECCENTRIC
 
+        # 2. Faza podnoszenia się (Faza ECCENTRIC)
         elif self.state == ExerciseState.ECCENTRIC:
-            # Wracasz w górę do siadu
             if angle > self.THRESHOLD_SITTING:
+                # ZALICZENIE POWTÓRZENIA
                 self.reps_count += 1
+                # KLUCZ: Wracamy do stanu CONCENTRIC (szukania leżenia).
+                # To blokuje ponowne zliczenie w tej samej fazie ruchu!
                 return ExerciseState.CONCENTRIC
 
         return self.state
 
+    def update(self, landmarks: list[dict[str, float]]):
+        """
+        Główna metoda aktualizująca stan ćwiczenia, wywoływana w testach i aplikacji.
+        """
+        if landmarks:
+            self.state = self.check_conditions(landmarks)
+
     def get_feedback(self, landmarks: list[dict[str, float]]) -> dict:
+        """
+        Zwraca dane do wyświetlenia w UI.
+        """
         raw_angle = calculate_angle(landmarks[12], landmarks[24], landmarks[26])
         angle = raw_angle if raw_angle <= 180 else 360 - raw_angle
+
         return {
             "exercise": self.name,
             "reps": self.reps_count,
