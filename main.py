@@ -22,29 +22,39 @@ st.set_page_config(layout="wide", page_title="Cyber Trener")
 def get_manager():
     return CameraManager()
 
+# [FIX] Dodajemy argument 'key', aby wymusić stworzenie DWÓCH oddzielnych detektorów.
+# Jeden będzie pamiętał historię ruchu z przodu, drugi z boku.
 @st.cache_resource
-def get_pose_detector():
+def get_pose_detector(key):
     return PoseDetector(
         static_image_mode=False,
-        model_complexity=1,
+        model_complexity=1, 
         smooth_landmarks=True,
         min_detection_confidence=0.5,
         min_tracking_confidence=0.5
     )
 
+# Wizualizator jest "głupi" (nie ma pamięci), więc wystarczy jeden wspólny.
 @st.cache_resource
 def get_visualizer():
     return Visualizer()
 
+# [FIX] To samo dla wygładzania. Musimy mieć osobne bufory dla przodu i boku.
+# Inaczej średnia krocząca mieszałaby współrzędne z dwóch kamer!
 @st.cache_resource
-def get_smoother():
+def get_smoother(key):
     return LandmarkSmoother(window_size=5, min_visibility=0.5)
 
 # Inicjalizacja obiektów
 manager = get_manager()
-pose_detector = get_pose_detector()
 visualizer = get_visualizer()
-smoother = get_smoother()
+
+# TWORZYMY OSOBNE INSTANCJE!
+detector_front = get_pose_detector("front_detector")
+detector_side = get_pose_detector("side_detector")
+
+smoother_front = get_smoother("front_smoother")
+smoother_side = get_smoother("side_smoother")
 
 # --- STATE ---
 if 'devices' not in st.session_state:
@@ -58,7 +68,7 @@ if 'shown_errors' not in st.session_state:
 render_sidebar()
 camera_active, sel_front, sel_side = render_camera_controls(manager)
 
-# Renderowanie layoutu wideo (Bez statystyk)
+# Renderowanie layoutu wideo
 ph_front, ph_side, ph_msg = render_video_layout()
 
 # --- LOGIKA STEROWANIA ---
@@ -78,36 +88,48 @@ else:
 
 # --- GŁÓWNA PĘTLA APLIKACJI ---
 try:
-    # Zmienna sterująca kolorem (na razie mock)
     is_bad_form = False 
     
     while True:
         if camera_active:
-            # 1. POBRANIE KLATKI
+            # ==========================================
+            # 1. KAMERA PRZEDNIA (FRONT)
+            # ==========================================
             frame_f = manager.get_frame('front', resize_width=640)
             status_f = manager.get_status('front')
 
-            # 2. PRZETWARZANIE AI & WIZUALIZACJA
-            if frame_f is not None and pose_detector is not None:
-                # A. Detekcja
-                landmarks = pose_detector.detect(frame_f)
+            if frame_f is not None and detector_front is not None:
+                # Używamy dedykowanego detektora dla przodu
+                landmarks_f = detector_front.detect(frame_f)
                 
-                # B. Wygładzanie
-                if landmarks:
-                    landmarks = smoother.update(landmarks)
+                # Używamy dedykowanego wygładzania dla przodu
+                if landmarks_f:
+                    landmarks_f = smoother_front.update(landmarks_f)
                 
-                # C. Rysowanie
-                visualizer.draw_skeleton(frame_f, landmarks, has_error=is_bad_form)
+                visualizer.draw_skeleton(frame_f, landmarks_f, has_error=is_bad_form)
 
-            # 3. DRUGA KAMERA
+            # ==========================================
+            # 2. KAMERA BOCZNA (SIDE)
+            # ==========================================
             if single_mode:
+                # W trybie single po prostu kopiujemy obraz z Frontu
                 frame_s = frame_f.copy() if frame_f is not None else None
                 status_s = status_f
             else:
                 frame_s = manager.get_frame('side', resize_width=640)
                 status_s = manager.get_status('side')
+                
+                if frame_s is not None and detector_side is not None:
+                    # Używamy dedykowanego detektora dla boku
+                    landmarks_s = detector_side.detect(frame_s)
+                    
+                    # Używamy dedykowanego wygładzania dla boku
+                    if landmarks_s:
+                        landmarks_s = smoother_side.update(landmarks_s)
 
-            # 4. WYŚWIETLANIE
+                    visualizer.draw_skeleton(frame_s, landmarks_s, has_error=is_bad_form)
+
+            # 3. WYŚWIETLANIE
             display_frame(ph_front, frame_f, status_f)
             display_frame(ph_side, frame_s, status_s)
             
@@ -118,5 +140,6 @@ try:
 
 except Exception as e:
     ph_msg.error(f"Pętla przerwana: {e}")
-    if pose_detector:
-        pose_detector.close()
+    # Zamykamy oba detektory
+    if detector_front: detector_front.close()
+    if detector_side: detector_side.close()
