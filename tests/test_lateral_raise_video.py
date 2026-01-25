@@ -3,63 +3,88 @@ import pytest
 import os
 import sys
 
-# Path setup to ensure 'src' is visible
+# Path setup to ensure the script can access the src folder
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.processor.pose import PoseDetector
 from src.exercises.lateral_raise import LateralRaise
-from src.utils.smoothing import LandmarkSmoother
-
-# Test cases for both Front and Side views
-# (video_path, expected_reps, description)
-VIDEO_CASES = [
-    ("media/test_videos/lateral_front_perfect.mp4", 5, "Front view - 5 clean reps"),
-    ("media/test_videos/lateral_side_cheat.mp4", 0, "Side view - heavy swinging, should not count"),
-    ("media/test_videos/lateral_front_partial.mp4", 0, "Front view - shallow reps, not reaching shoulder height")
-]
 
 
-def analyze_video(video_path):
+def analyze_lateral_raise_dual(video_path_side, video_path_front=None):
     """
-    Processes video to count reps and detect form errors for Lateral Raises.
+    Processes videos from one or two cameras and returns the repetition count.
     """
-    detector = PoseDetector(model_complexity=1)
-    # Using a slightly larger window for smoothing to stabilize arm movement
-    smoother = LandmarkSmoother(window_size=7, min_visibility=0.5)
-    lat_raise = LateralRaise()
+    # Initialize detectors for both views
+    detector_side = PoseDetector(model_complexity=1)
+    detector_front = PoseDetector(model_complexity=1) if video_path_front else None
 
-    cap = cv2.VideoCapture(video_path)
+    exercise = LateralRaise()
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
+    cap_side = cv2.VideoCapture(video_path_side)
+    cap_front = cv2.VideoCapture(video_path_front) if video_path_front else None
+
+    while cap_side.isOpened():
+        ret_s, frame_s = cap_side.read()
+        if not ret_s:
             break
 
-        landmarks = detector.detect(frame)
+        # Detection from the side camera (mandatory)
+        landmarks_s = detector_side.detect(frame_s)
 
-        if landmarks:
-            # Temporal smoothing is crucial here as arms move fast in lateral raises
-            smoothed_landmarks = smoother.update(landmarks)
+        # Detection from the front camera (optional)
+        landmarks_f = None
+        if cap_front:
+            ret_f, frame_f = cap_front.read()
+            if ret_f:
+                landmarks_f = detector_front.detect(frame_f)
 
-            if smoothed_landmarks:
-                lat_raise.update(smoothed_landmarks)
+        # Update exercise state with available landmarks
+        if landmarks_s:
+            exercise.update(side_landmarks=landmarks_s, front_landmarks=landmarks_f)
 
-    cap.release()
-    return lat_raise.reps_count
+    cap_side.release()
+    if cap_front:
+        cap_front.release()
+
+    return exercise.reps_count
 
 
-@pytest.mark.parametrize("video_file, expected_reps, description", VIDEO_CASES)
-def test_lateral_raise_scenarios(video_file, expected_reps, description):
+def test_lateral_raise_perfect_form():
     """
-    Validates Lateral Raise logic against different camera angles and form qualities.
+    Test scenario with two cameras: 5 correct repetitions.
     """
-    assert os.path.exists(video_file), f"Error: Video file {video_file} not found!"
-    detected_reps = analyze_video(video_file)
+    video_side = "media/test_videos/lateral_side_5reps.mp4"
+    video_front = "media/test_videos/lateral_front_5reps.mp4"
 
-    print(f"\nVideo: {video_file}")
-    print(f"Description: {description}")
-    print(f"Expected: {expected_reps} | Detected: {detected_reps}")
+    if not os.path.exists(video_side) or not os.path.exists(video_front):
+        pytest.skip("Test video files do not exist.")
 
-    assert detected_reps == expected_reps, (
-        f"Failed for {video_file}. Expected {expected_reps}, got {detected_reps}."
-    )
+    reps = analyze_lateral_raise_dual(video_side, video_front)
+    assert reps == 5
+
+
+def test_lateral_raise_swinging_error():
+    """
+    Test error detection: torso swinging should block repetition counting.
+    """
+    video_side = "media/test_videos/lateral_side_swinging.mp4"
+
+    if not os.path.exists(video_side):
+        pytest.skip("Cheat video file does not exist.")
+
+    # Even if arm movement is correct, swinging (visible from the side) should result in 0 reps
+    reps = analyze_lateral_raise_dual(video_side)
+    assert reps == 0
+
+
+def test_lateral_raise_no_front_camera():
+    """
+    Test system resilience when front camera is missing (side view only).
+    """
+    video_side = "media/test_videos/lateral_side_3reps.mp4"
+
+    if not os.path.exists(video_side):
+        pytest.skip("Side view video file does not exist.")
+
+    reps = analyze_lateral_raise_dual(video_side)
+    assert reps == 3

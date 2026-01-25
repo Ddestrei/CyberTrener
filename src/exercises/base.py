@@ -24,22 +24,30 @@ class ExerciseBase(ABC):
         self.errors: list[str] = []
 
     @abstractmethod
-    def check_conditions(self, landmarks: list[dict[str, float]]) -> Optional[ExerciseState]:
+    def check_conditions(
+        self,
+        side_landmarks: list[dict[str, float]],
+        front_landmarks: Optional[list[dict[str, float]]] = None
+    ) -> Optional[ExerciseState]:
         """
         Analyzes landmarks and returns the suggested ExerciseState.
         Must be implemented by specific exercise classes.
         """
         pass
 
-    def update(self, landmarks: Optional[list[dict[str, float]]]) -> None:
+    def update(
+        self,
+        side_landmarks: Optional[list[dict[str, float]]],
+        front_landmarks: Optional[list[dict[str, float]]] = None
+    ) -> None:
         """
         Core state machine logic.
         Transitions: WAITING -> CONCENTRIC -> ECCENTRIC -> WAITING (Count Rep)
         """
-        if not landmarks:
+        if not side_landmarks:
             return
 
-        suggested_state = self.check_conditions(landmarks)
+        suggested_state = self.check_conditions(side_landmarks, front_landmarks)
 
         if suggested_state is None:
             return

@@ -1,3 +1,4 @@
+from typing import Optional
 from src.exercises.base import ExerciseBase, ExerciseState
 from src.utils.geometry import calculate_angle
 
@@ -13,14 +14,18 @@ class BicepCurl(ExerciseBase):
         self.TRUNK_LEAN_MAX = 13.0
         self.rep_had_error = False
 
-    def check_conditions(self, landmarks: list[dict[str, float]]) -> ExerciseState:
+    def check_conditions(
+        self,
+        side_landmarks: list[dict[str, float]],
+        front_landmarks: Optional[list[dict[str, float]]] = None
+    ) -> Optional[ExerciseState]:
         # 1. Angle Retrieval
         # Elbow angle: Shoulder (12) -> Elbow (14) -> Wrist (16)
-        raw_elbow = calculate_angle(landmarks[12], landmarks[14], landmarks[16])
+        raw_elbow = calculate_angle(side_landmarks[12], side_landmarks[14], side_landmarks[16])
         elbow_angle = raw_elbow if raw_elbow <= 180 else 360 - raw_elbow
 
         # Trunk angle: Shoulder (12) -> Hip (24) -> Knee (26)
-        raw_trunk = calculate_angle(landmarks[12], landmarks[24], landmarks[26])
+        raw_trunk = calculate_angle(side_landmarks[12], side_landmarks[24], side_landmarks[26])
         trunk_angle = raw_trunk if raw_trunk <= 180 else 360 - raw_trunk
 
         # 2. Back Deviation Calculation
@@ -59,9 +64,14 @@ class BicepCurl(ExerciseBase):
 
         return self.state
 
-    def update(self, landmarks: list[dict[str, float]]):
+    def update(
+        self,
+        side_landmarks: Optional[list[dict[str, float]]],
+        front_landmarks: Optional[list[dict[str, float]]] = None
+    ) -> None:
         """
         Main entry point called per frame to update the exercise state.
+        Uses original logic by assigning state directly from check_conditions.
         """
-        if landmarks:
-            self.state = self.check_conditions(landmarks)
+        if side_landmarks:
+            self.state = self.check_conditions(side_landmarks, front_landmarks)

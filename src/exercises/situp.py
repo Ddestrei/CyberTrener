@@ -1,3 +1,4 @@
+from typing import Optional
 from src.exercises.base import ExerciseBase, ExerciseState
 from src.utils.geometry import calculate_angle
 
@@ -11,19 +12,21 @@ class SitUp(ExerciseBase):
         self.THRESHOLD_SITTING = 110.0
         self.THRESHOLD_LYING = 50.0
 
-    def check_conditions(self, landmarks: list[dict[str, float]]) -> ExerciseState:
+    def check_conditions(
+        self,
+        side_landmarks: list[dict[str, float]],
+        front_landmarks: Optional[list[dict[str, float]]] = None
+    ) -> ExerciseState:
         """
         Analyzes the hip angle and manages the exercise state machine.
+        Uses side view as the primary source for hip flexion.
         Key landmarks: 12 (Shoulder), 24 (Hip), 26 (Knee).
         """
-        # Calculate the internal angle at the hip joint
-        raw_angle = calculate_angle(landmarks[12], landmarks[24], landmarks[26])
+        # Calculate the internal angle at the hip joint using side view
+        raw_angle = calculate_angle(side_landmarks[12], side_landmarks[24], side_landmarks[26])
 
         # Normalize the angle to 0-180 degree range
         angle = raw_angle if raw_angle <= 180 else 360 - raw_angle
-
-        # Optional debug logging for development
-        # print(f"DEBUG | State: {self.state.name} | Angle: {angle:.2f}")
 
         # Waiting for the user to reach the starting position (lying down)
         if self.state == ExerciseState.WAITING or self.state == ExerciseState.CONCENTRIC:
@@ -36,26 +39,26 @@ class SitUp(ExerciseBase):
             if angle > self.THRESHOLD_SITTING:
                 # SUCCESS: One rep completed when torso is fully upright
                 self.reps_count += 1
-
-                # Transition back to search for the lying position
-                # This prevents duplicate counting during the same movement cycle
                 return ExerciseState.CONCENTRIC
 
         return self.state
 
-    def update(self, landmarks: list[dict[str, float]]):
+    def update(
+        self,
+        side_landmarks: list[dict[str, float]],
+        front_landmarks: Optional[list[dict[str, float]]] = None
+    ) -> None:
         """
-        Core update method called by tests and the application loop.
-        Processes landmarks to determine state changes.
+        Core update method. Processes landmarks to determine state changes.
         """
-        if landmarks:
-            self.state = self.check_conditions(landmarks)
+        if side_landmarks:
+            self.state = self.check_conditions(side_landmarks, front_landmarks)
 
-    def get_feedback(self, landmarks: list[dict[str, float]]) -> dict:
+    def get_feedback(self, side_landmarks: list[dict[str, float]]) -> dict:
         """
-        Returns structured data for the UI and feedback modules.
+        Returns structured data for the UI based on side view landmarks.
         """
-        raw_angle = calculate_angle(landmarks[12], landmarks[24], landmarks[26])
+        raw_angle = calculate_angle(side_landmarks[12], side_landmarks[24], side_landmarks[26])
         angle = raw_angle if raw_angle <= 180 else 360 - raw_angle
 
         return {
