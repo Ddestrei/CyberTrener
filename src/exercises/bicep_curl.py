@@ -6,52 +6,53 @@ class BicepCurl(ExerciseBase):
     def __init__(self):
         super().__init__()
         self.name = "Bicep Curl"
+        # Movement thresholds
         self.ELBOW_EXTENDED = 160.0
         self.ELBOW_FLEXED = 95.0
+        # Trunk stability threshold (deviation from 180 degrees)
         self.TRUNK_LEAN_MAX = 13.0
         self.rep_had_error = False
 
     def check_conditions(self, landmarks: list[dict[str, float]]) -> ExerciseState:
-        # 1. Pobieranie kątów
+        # 1. Angle Retrieval
+        # Elbow angle: Shoulder (12) -> Elbow (14) -> Wrist (16)
         raw_elbow = calculate_angle(landmarks[12], landmarks[14], landmarks[16])
         elbow_angle = raw_elbow if raw_elbow <= 180 else 360 - raw_elbow
 
+        # Trunk angle: Shoulder (12) -> Hip (24) -> Knee (26)
         raw_trunk = calculate_angle(landmarks[12], landmarks[24], landmarks[26])
         trunk_angle = raw_trunk if raw_trunk <= 180 else 360 - raw_trunk
 
-        # 2. Obliczanie odchylenia pleców
+        # 2. Back Deviation Calculation
+        # Measures how much the torso leans away from a straight vertical line (180°)
         deviation = abs(180.0 - trunk_angle)
 
-        # Logowanie błędu w czasie rzeczywistym
+        # Cheating detection (Swinging/Leaning)
         if deviation > self.TRUNK_LEAN_MAX:
-            # if not self.rep_had_error:
-            #     print(f">>> WYKRYTO OSZUSTWO! Odchylenie: {round(deviation, 1)}° (Kąt: {round(trunk_angle, 1)}°)")
             self.rep_had_error = True
             if "Stop swinging!" not in self.errors:
                 self.add_error("Stop swinging!")
 
-        # 3. Maszyna stanów z logowaniem przejść
+        # 3. State Machine Logic
+        # WAITING: Initial state, looking for a full arm extension to start
         if self.state == ExerciseState.WAITING:
             if elbow_angle > self.ELBOW_EXTENDED:
-                # print("--- Start powtórzenia: Ręka wyprostowana (Faza w górę) ---")
                 self.rep_had_error = False
                 self.errors.clear()
                 return ExerciseState.CONCENTRIC
 
+        # CONCENTRIC: Upward phase (curling the weight)
         elif self.state == ExerciseState.CONCENTRIC:
             if elbow_angle < self.ELBOW_FLEXED:
-                # print(f"--- Szczyt osiągnięty (Kąt łokcia: {round(elbow_angle, 1)}°) ---")
+                # Rep is counted at the peak of the contraction if no cheating was detected
                 if not self.rep_had_error:
                     self.reps_count += 1
-                    # print(f"POWTÓRZENIE ZALICZONE! Licznik: {self.reps_count}")
-                # else:
-                    # print("POWTÓRZENIE ODRZUCONE: Wykryto bujanie plecami w trakcie ruchu.")
                 return ExerciseState.ECCENTRIC
 
+        # ECCENTRIC: Downward phase (lowering the weight)
         elif self.state == ExerciseState.ECCENTRIC:
-            # Opcjonalny print kontrolny fazy opuszczania
             if elbow_angle > self.ELBOW_EXTENDED:
-                # print("--- Koniec powtórzenia: Ręka wróciła do dołu ---")
+                # Reset error flags once the arm is fully extended again
                 self.rep_had_error = False
                 self.errors.clear()
                 return ExerciseState.CONCENTRIC
@@ -59,9 +60,8 @@ class BicepCurl(ExerciseBase):
         return self.state
 
     def update(self, landmarks: list[dict[str, float]]):
+        """
+        Main entry point called per frame to update the exercise state.
+        """
         if landmarks:
-            old_state = self.state
             self.state = self.check_conditions(landmarks)
-            # Logowanie zmiany stanu dla lepszego debugowania
-            # if old_state != self.state:
-                # print(f"[DEBUG] Zmiana stanu: {old_state} -> {self.state}")
