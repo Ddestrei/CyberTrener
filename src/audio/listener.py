@@ -14,11 +14,14 @@ except ImportError:
 
 
 class ExerciseListener(threading.Thread):
-    def __init__(self, command_queue, keywords):
+    def __init__(self,command_queue):
         super().__init__(daemon=True)
-        self.command_queue = command_queue
+        self.queue = command_queue
+        self.commands = [
+            "start", "end", "next", "previous", "reset", "plank", "sit ups", "bicep curl", "lateral raise", "press"
+        ]
+
         self.sample_rate = 16000  # <--- Definiujemy atrybut na samym początku
-        self.keywords = keywords
 
         if not self.check_microphone():
             print("!!! OSTRZEŻENIE: Nie wykryto podłączonego mikrofonu !!!")
@@ -30,7 +33,7 @@ class ExerciseListener(threading.Thread):
         if VOSK_AVAILABLE:
             try:
                 # Folder 'model' musi być w tym samym katalogu co skrypt
-                self.vosk_model = Model("vosk-model-small-en-us-0.15")
+                self.vosk_model = Model("src/audio/vosk-model-small-en-us-0.15")
                 self.recognizer = KaldiRecognizer(self.vosk_model, self.sample_rate)
                 self.model_loaded = True
                 print("Załadowano silnik offline (Vosk).")
@@ -47,97 +50,55 @@ class ExerciseListener(threading.Thread):
         with sd.RawInputStream(samplerate=self.sample_rate, blocksize=8000,
                                dtype='int16', channels=1) as stream:
             print("Nasłuchiwanie komend...")
-
             while True:
                 data, overflow = stream.read(4000)
                 if overflow:
                     continue
 
                 if self.model_loaded:
-                    # Logika OFFLINE (Vosk)
                     if self.recognizer.AcceptWaveform(bytes(data)):
                         result = json.loads(self.recognizer.Result())
-                        self.process_text(result.get("text", ""))
-                else:
-                    # Logika ONLINE (Google Fallback)
-                    # Konwersja na format akceptowany przez SpeechRecognition
-                    audio_data = sr.AudioData(bytes(data), self.sample_rate, 2)
-                    try:
-                        # Uwaga: Google może być wolniejsze przy krótkich blokach
-                        r = sr.Recognizer()
-                        text = r.recognize_google(audio_data, language="en-US").lower()
-                        self.process_text(text)
-                    except:
-                        pass
+                        command = self.process_text(result.get("text", ""))
+                        if command is not None:
+                            self.queue.put(command)
 
     def process_text(self, text):
         if not text:
             return
-
         print(f"Słyszę: {text}")
-        for cmd in self.keywords:
+        for cmd in self.commands:
             if cmd in text:
                 print(f"Wyryto komendę: {cmd}")
-                self.command_queue.put(cmd)
-                break
+                return cmd
             else:
                 if 'brass' in text or 'bless' in text or 'grass' in text:
                     print(f"Wyryto komendę: press")
-                    self.command_queue.put("press")
-                    break
+                    return "press"
                 if 'bike' in text or 'bites' in text or 'bicep' in text or 'cover' in text or 'cutter' in text or 'curl' in text:
                     print(f"Wyryto komendę: bicep curl")
-                    self.command_queue.put("bicep curl")
-                    break
+                    return "bicep curl"
                 if 'thoughts' in text or 'starved' in text or 'dart' in text or 'thought' in text or 'dogs' in text or 'solved' in text:
                     print(f"Wyryto komendę: start")
-                    self.command_queue.put("start")
-                    break
+                    return "start"
                 if 'and' in text:
                     print(f"Wyryto komendę: end")
-                    self.command_queue.put("end")
-                    break
+                    return "end"
                 if 'previews' in text or 'reviews' in text:
                     print(f"Wyryto komendę: previous")
-                    self.command_queue.put("previous")
-                    break
+                    return "previous"
                 if 'assets' in text or 'price' in text:
                     print(f"Wyryto komendę: reset")
-                    self.command_queue.put("reset")
-                    break
+                    return "reset"
                 if 'black' in text or 'blanc' in text or 'blank' in text or 'long' in text or 'blog' in text or 'flunk' in text or 'plum' in text or 'flung' in text \
                         or 'plunk' in text or 'wrong' in text or 'plug' in text:
                     print(f"Wyryto komendę: plank")
-                    self.command_queue.put("plank")
-                    break
+                    return 'plank'
                 if 'ups' in text or 'adopts' in text or 'ducks' in text or 'dubs' in text:
                     print(f"Wyryto komendę: sit ups")
-                    self.command_queue.put("sit ups")
-                    break
+                    return 'sit ups'
                 if 'rice' in text or 'rise' in text or 'lott' in text or 'local' in text or 'eye' in text:
                     print(f"Wyryto komendę: lateral raise")
-                    self.command_queue.put("lateral raise")
-                    break
+                    return "lateral raise"
+        return None
 
 
-# --- Przykład użycia ---
-class Listener(threading.Thread):
-    def __init__(self, commands, functions):
-        super().__init__(daemon=True)
-        self.commands = commands
-        self.functions = functions
-        self.q = queue.Queue()
-        listener = ExerciseListener(self.q, keywords=commands)
-        listener.start()
-
-    def run(self):
-        try:
-            while True:
-                if not self.q.empty():
-                    command = self.q.get()
-                    index = self.commands.index(command)
-                    func = self.functions[index]
-                    func()
-                    print(f"Przetwarzanie w aplikacji głównej: {command}")
-        except KeyboardInterrupt:
-            print("Zamykanie...")

@@ -56,7 +56,6 @@ def render_camera_controls(manager):
 
     # Główny przełącznik systemu
     active = st.sidebar.toggle("Aktywuj System Wideo", value=True)
-    
     return active, sel_front, sel_side
 
 def render_video_layout():
@@ -83,9 +82,9 @@ def display_frame(placeholder, frame, status_msg=None):
     """
     if frame is not None:
         disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        placeholder.image(disp, channels="RGB", use_container_width=True)
+        placeholder.image(disp, channels="RGB", width=400)
             
     elif status_msg:
         blk = np.zeros((360, 640, 3), dtype=np.uint8)
         cv2.putText(blk, "NO SIGNAL", (200, 180), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-        placeholder.image(blk, channels="RGB", use_container_width=True)
+        placeholder.image(blk, channels="RGB", width=400)
