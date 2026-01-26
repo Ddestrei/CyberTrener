@@ -1,136 +1,182 @@
 import streamlit as st
-import time
 import cv2
+import time
+import numpy as np
 
-from State_Manager import StateManager
+# --- IMPORTS ---
+try:
+    from State_Manager import StateManager
+except ImportError:
+    import sys
+    import os
+    sys.path.append(os.getcwd())
+    from State_Manager import StateManager
 
-# Importy modułów projektu
 from src.processor.camera import CameraManager
 from src.processor.pose import PoseDetector
 from src.ui.visualizer import Visualizer
-from src.utils.smoothing import LandmarkSmoother
-from src.ui.dashboard import (
-    render_sidebar,
-    render_camera_controls,
-    render_video_layout,
-    display_frame
-)
 
-# Konfiguracja strony Streamlit
-st.set_page_config(layout="wide", page_title="Cyber Trener")
+from src.exercises.plank import Plank
+from src.exercises.situp import SitUp
+from src.exercises.bicep_curl import BicepCurl
 
-state = StateManager()
-state.start()
-# ==========================================
-# 3. SINGLETONY (AI / KAMERY)
-# ==========================================
+# --- 1. PAGE CONFIG ---
+st.set_page_config(layout="wide", page_title="CyberTrener AI")
+
+# --- 2. SINGLETON INITIALIZATION ---
 @st.cache_resource
-def get_manager(): return CameraManager()
-
+def get_camera_manager(): return CameraManager()
 
 @st.cache_resource
-def get_pose_detector(): return PoseDetector(static_image_mode=False, model_complexity=1, smooth_landmarks=True)
+def get_pose_detector(): return PoseDetector()
 
+@st.cache_resource
+def get_state_manager():
+    manager = StateManager()
+    manager.start()
+    return manager
 
 @st.cache_resource
 def get_visualizer(): return Visualizer()
 
-
-@st.cache_resource
-def get_smoother(): return LandmarkSmoother(window_size=5, min_visibility=0.5)
-
-
-manager = get_manager()
+camera_manager = get_camera_manager()
 pose_detector = get_pose_detector()
+state_manager = get_state_manager()
 visualizer = get_visualizer()
-smoother = get_smoother()
 
-# Stan urządzeń
-if 'devices' not in st.session_state: st.session_state['devices'] = manager.passive_scan()
-if 'last_scan' not in st.session_state: st.session_state['last_scan'] = "Nigdy"
+# --- 3. SIDEBAR ---
+st.sidebar.title("CyberTrener Controls")
+st.sidebar.subheader("Video Source")
 
-# ==========================================
-# 4. UI ASSEMBLY (PASEK BOCZNY)
-# ==========================================
-render_sidebar()  # Renderuje nagłówek
+if 'available_cams' not in st.session_state:
+    try:
+        st.session_state['available_cams'] = camera_manager.passive_scan()
+    except AttributeError:
+        st.session_state['available_cams'] = [0, 1, 2]
 
-# [NOWOŚĆ] Dodajemy placeholder na wykryte słowo
-st.sidebar.markdown("### 🎤 Rozpoznawanie głosu")
-voice_status_placeholder = st.sidebar.empty()  # Puste miejsce do aktualizacji w pętli
-voice_status_placeholder.info(f"Ostatnia komenda: **{state.last_spoken_word}**")
+cam_options = st.session_state['available_cams']
+
+front_cam_idx = st.sidebar.selectbox("Front Camera", options=cam_options, index=0)
+side_cam_idx = st.sidebar.selectbox("Side Camera", options=cam_options, index=1 if len(cam_options)>1 else 0)
+
+col_start, col_stop = st.sidebar.columns(2)
+if col_start.button("START SYSTEM"):
+    camera_manager.start_camera('front', front_cam_idx)
+    camera_manager.start_camera('side', side_cam_idx)
+    st.session_state['app_active'] = True
+
+if col_stop.button("STOP SYSTEM"):
+    camera_manager.stop_all()
+    st.session_state['app_active'] = False
 
 st.sidebar.markdown("---")
+st.sidebar.subheader("Voice Command Status")
+status_text = st.sidebar.empty()
+cmd_text = st.sidebar.empty()
+reps_text = st.sidebar.empty()
 
-camera_active, sel_front, sel_side = render_camera_controls(manager)
-ph_front, ph_side, ph_msg = render_video_layout()
+# --- 4. MAIN LAYOUT ---
+col_front, col_side = st.columns(2)
+with col_front:
+    st.header("Front View")
+    front_placeholder = st.empty()
 
-# --- LOGIKA STEROWANIA ---
-single_mode = (sel_front == sel_side)
-if camera_active:
-    try:
-        manager.start_camera('front', sel_front)
-        if not single_mode:
-            manager.start_camera('side', sel_side)
-        else:
-            manager.stop_role('side')
-    except Exception as e:
-        st.error(f"Blad startu: {e}")
-else:
-    manager.stop_all()
+with col_side:
+    st.header("Side View")
+    side_placeholder = st.empty()
 
-# ==========================================
-# 5. GŁÓWNA PĘTLA APLIKACJI
-# ==========================================
-try:
-    is_bad_form = False
-    frame_counter = 0
+# --- 5. HELPERS ---
+def get_current_exercise_logic(exercise_name):
+    name = exercise_name.lower()
+    if name == "plank": return Plank()
+    if name == "sit ups": return SitUp()
+    if name == "bicep curl": return BicepCurl()
+    return None
 
+def create_placeholder_frame(text="NO SIGNAL"):
+    blk = np.zeros((480, 640, 3), dtype=np.uint8)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 1.0
+    thickness = 2
+    text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+    text_x = (640 - text_size[0]) // 2
+    text_y = (480 + text_size[1]) // 2
+    cv2.putText(blk, text, (text_x, text_y), font, font_scale, (100, 100, 100), thickness)
+    return blk
+
+# --- 6. MAIN LOOP ---
+if st.session_state.get('app_active', False):
+    
+    current_exercise_name = state_manager.last_spoken_word
+    exercise_logic = get_current_exercise_logic(current_exercise_name)
+    
     while True:
-        # [NOWOŚĆ] Aktualizacja pola na pasku bocznym w czasie rzeczywistym
-        # Wyświetlamy to, co ostatnio usłyszał Listener (zapisane w state)
-        voice_status_placeholder.info(f"Ostatnia komenda: **{state.last_spoken_word}**")
+        # A. UI Updates
+        status_icon = "🟢" if state_manager.is_tracking else "🔴"
+        status_label = "Tracking" if state_manager.is_tracking else "Waiting"
+        
+        status_text.markdown(f"**Status:** {status_icon} {status_label}")
+        cmd_text.markdown(f"**Exercise:** {state_manager.last_spoken_word}")
+        reps_text.markdown(f"**Reps:** {state_manager.reps}")
 
-        if camera_active:
-            # 1. POBRANIE KLATKI Z FRONTU
-            frame_f = manager.get_frame('front', resize_width=640)
-            status_f = manager.get_status('front')
+        # B. Handle Reset Command (Voice)
+        # [FIX] This block resets the Logic Class when "Reset" is heard
+        if state_manager.is_reset:
+            if exercise_logic:
+                if hasattr(exercise_logic, 'reset_stats'): exercise_logic.reset_stats()
+                elif hasattr(exercise_logic, 'reset'): exercise_logic.reset()
+            state_manager.reps = 0
+            state_manager.is_reset = 0 # Turn off the flag
 
-            # 2. PRZETWARZANIE AI & WIZUALIZACJA
-            if frame_f is not None and pose_detector is not None:
-                landmarks_f = pose_detector.detect(frame_f)
-                if landmarks_f: landmarks_f = smoother.update(landmarks_f)
+        # C. Logic Switching
+        if state_manager.last_spoken_word != current_exercise_name:
+            current_exercise_name = state_manager.last_spoken_word
+            exercise_logic = get_current_exercise_logic(current_exercise_name)
+            if exercise_logic:
+                if hasattr(exercise_logic, 'reset_stats'): exercise_logic.reset_stats()
+                elif hasattr(exercise_logic, 'reset'): exercise_logic.reset()
 
-                visualizer.draw_skeleton(frame_f, landmarks_f, has_error=is_bad_form)
+        # D. Get Frames
+        frame_front = camera_manager.get_frame('front')
+        frame_side = camera_manager.get_frame('side')
 
-                # Symulacja licznika
-                if state.is_tracking:
-                    if frame_counter % 50 == 0: state.reps += 1
+        # --- FRONT CAMERA HANDLING ---
+        if frame_front is not None:
+            landmarks = pose_detector.detect(frame_front)
+            
+            feedback = []
+            if state_manager.is_tracking and exercise_logic and landmarks:
+                exercise_logic.update(landmarks)
+                state_manager.reps = exercise_logic.reps_count
+                if hasattr(exercise_logic, 'errors'):
+                    feedback = exercise_logic.errors
 
-                errors_to_show = ["KOLANA DO SRODKA!"] if is_bad_form else []
-                visualizer.draw_panel(frame_f, state.reps, state.last_spoken_word, errors=errors_to_show)
-
-            # 3. OBSŁUGA DRUGIEJ KAMERY
-            if single_mode:
-                frame_s = frame_f.copy() if frame_f is not None else None
-                status_s = status_f
-            else:
-                frame_s = manager.get_frame('side', resize_width=640)
-                status_s = manager.get_status('side')
-                if frame_s is not None and pose_detector is not None:
-                    lm_s = pose_detector.detect(frame_s)
-                    visualizer.draw_skeleton(frame_s, lm_s, has_error=False)
-
-            # 4. WYŚWIETLANIE
-            display_frame(ph_front, frame_f, status_f)
-            display_frame(ph_side, frame_s, status_s)
-
-            time.sleep(0.01) if frame_f is not None else time.sleep(0.1)
+            # [FIX] Added "_ =" to prevent "None" shadow
+            _ = visualizer.draw_skeleton(frame_front, landmarks, has_error=bool(feedback))
+            _ = visualizer.draw_panel(
+                frame_front, 
+                reps=state_manager.reps, 
+                exercise_name=current_exercise_name, 
+                errors=feedback
+            )
+            front_placeholder.image(cv2.cvtColor(frame_front, cv2.COLOR_BGR2RGB), width="stretch")
         else:
-            time.sleep(0.5)
+            placeholder = create_placeholder_frame("NO CAMERA / LOADING...")
+            front_placeholder.image(placeholder, width="stretch")
 
-except Exception as e:
-    ph_msg.error(f"Pętla przerwana: {e}")
-    try:
-        if pose_detector: pose_detector.close()
-    except:
-        pass
+        # --- SIDE CAMERA HANDLING ---
+        if frame_side is not None:
+            lm_side = pose_detector.detect(frame_side)
+            # [FIX] Added "_ =" here too
+            _ = visualizer.draw_skeleton(frame_side, lm_side, has_error=False)
+            side_placeholder.image(cv2.cvtColor(frame_side, cv2.COLOR_BGR2RGB), width="stretch")
+        else:
+            placeholder_side = create_placeholder_frame("SIDE CAM OFF")
+            side_placeholder.image(placeholder_side, width="stretch")
+
+        # Prevent CPU hogging
+        if frame_front is None and frame_side is None:
+            time.sleep(0.1)
+
+else:
+    front_placeholder.info("System stopped. Press 'START SYSTEM' in the sidebar.")
