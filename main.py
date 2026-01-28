@@ -1,234 +1,236 @@
+"""
+CyberTrener - AI-powered workout coach with real-time pose detection.
+Optimized for performance with Frame Skipping.
+"""
+
 import streamlit as st
 import cv2
-import time
 import numpy as np
+import time
 
 # --- IMPORTS ---
-try:
-    from State_Manager import StateManager
-except ImportError:
-    import sys
-    import os
-
-    sys.path.append(os.getcwd())
-    from State_Manager import StateManager
-
-from src.processor.camera import CameraManager
-from src.processor.pose import PoseDetector
+from src.controller import WorkoutController, EXERCISE_REGISTRY
 from src.ui.visualizer import Visualizer
-# [FIX 1] Przywrócono import wygładzania
-from src.utils.smoothing import LandmarkSmoother
-
-from src.exercises.plank import Plank
-from src.exercises.situp import SitUp
-from src.exercises.bicep_curl import BicepCurl
-from src.exercises.lateral_raise import LateralRaise
-from src.exercises.overhead_press import OverheadPress
+from src.audio.speaker import TextToSpeechManager
+from src.audio.listener import ExerciseListener
 
 # --- 1. PAGE CONFIG ---
-st.set_page_config(layout="wide", page_title="CyberTrener AI")
+st.set_page_config(
+    layout="wide",
+    page_title="CyberTrener AI",
+    page_icon="🏋️"
+)
 
 
-# --- 2. SINGLETON INITIALIZATION ---
-@st.cache_resource
-def get_camera_manager(): return CameraManager()
-
-
-# [FIX 3] Dodano parametr 'key', aby mieć osobne instancje dla Front i Side
-@st.cache_resource
-def get_pose_detector(key): return PoseDetector()
-
+# =============================================================================
+# SINGLETON INITIALIZATION
+# =============================================================================
 
 @st.cache_resource
-def get_state_manager():
-    manager = StateManager()
-    manager.start()
-    return manager
+def get_tts_manager():
+    return TextToSpeechManager()
 
 
 @st.cache_resource
-def get_visualizer(): return Visualizer()
+def get_command_queue():
+    import queue
+    return queue.Queue()
 
 
-# [FIX 1] Singleton dla Smoothera z kluczem
 @st.cache_resource
-def get_smoother(key):
-    return LandmarkSmoother(window_size=5, min_visibility=0.5)
+def get_voice_listener(_command_queue):
+    listener = ExerciseListener(_command_queue)
+    listener.start()
+    return listener
 
 
-camera_manager = get_camera_manager()
+@st.cache_resource
+def get_workout_controller(_tts_manager, _command_queue):
+    return WorkoutController(
+        tts_manager=_tts_manager,
+        command_queue=_command_queue,
+    )
+
+
+@st.cache_resource
+def get_visualizer():
+    return Visualizer()
+
+
+# Initialize Singletons
+tts_manager = get_tts_manager()
+command_queue = get_command_queue()
+voice_listener = get_voice_listener(command_queue)
+controller = get_workout_controller(tts_manager, command_queue)
 visualizer = get_visualizer()
-state_manager = get_state_manager()
 
-# Inicjalizacja osobnych instancji dla obu widoków
-detector_front = get_pose_detector("front")
-detector_side = get_pose_detector("side")
-smoother_front = get_smoother("front")
-smoother_side = get_smoother("side")
 
-# --- 3. SIDEBAR ---
-st.sidebar.title("CyberTrener Controls")
-st.sidebar.subheader("Video Source")
+# =============================================================================
+# UI HELPER FUNCTIONS
+# =============================================================================
 
+def create_placeholder_frame(text: str = "NO SIGNAL", width: int = 640, height: int = 480) -> np.ndarray:
+    frame = np.zeros((height, width, 3), dtype=np.uint8)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    text_size = cv2.getTextSize(text, font, 1.0, 2)[0]
+    text_x = (width - text_size[0]) // 2
+    text_y = (height + text_size[1]) // 2
+    cv2.putText(frame, text, (text_x, text_y), font, 1.0, (100, 100, 100), 2)
+    return frame
+
+
+def render_frame_with_overlay(frame: np.ndarray, landmarks: list, stats: object, vis: Visualizer,
+                              show_skeleton: bool = True) -> np.ndarray:
+    if frame is None:
+        return create_placeholder_frame("NO CAMERA")
+
+    # Rysuj szkielet tylko jeśli są dane
+    if show_skeleton and landmarks:
+        has_error = len(stats.errors) > 0 if stats else False
+        vis.draw_skeleton(frame, landmarks, has_error=has_error)
+
+    # Rysuj panel statystyk
+    if stats:
+        vis.draw_panel(frame, reps=stats.reps, exercise_name=stats.exercise_name, errors=stats.errors)
+
+    return frame
+
+
+# =============================================================================
+# SIDEBAR UI
+# =============================================================================
+
+st.sidebar.title("🏋️ CyberTrener")
+st.sidebar.markdown("---")
+
+# --- Camera Setup ---
+st.sidebar.subheader("📷 Camera Setup")
 if 'available_cams' not in st.session_state:
-    try:
-        st.session_state['available_cams'] = camera_manager.passive_scan()
-    except AttributeError:
-        st.session_state['available_cams'] = [0, 1, 2]
+    st.session_state['available_cams'] = controller.camera_manager.passive_scan()
 
 cam_options = st.session_state['available_cams']
 
 front_cam_idx = st.sidebar.selectbox("Front Camera", options=cam_options, index=0)
-side_cam_idx = st.sidebar.selectbox("Side Camera", options=cam_options, index=1 if len(cam_options) > 1 else 0)
-
-# [FIX 2] Logika Single Mode (zapobieganie konfliktom kamer)
-single_mode = (front_cam_idx == side_cam_idx)
+side_cam_idx = st.sidebar.selectbox("Side Camera", options=cam_options, index=min(1, len(cam_options) - 1))
 
 col_start, col_stop = st.sidebar.columns(2)
-if col_start.button("START SYSTEM"):
-    # Jeśli kamery są te same, uruchamiamy tylko jedną rolę
-    camera_manager.start_camera('front', front_cam_idx)
-    if not single_mode:
-        camera_manager.start_camera('side', side_cam_idx)
-    else:
-        # Ważne: Jeśli single mode, upewnij się, że rola side jest zatrzymana
-        camera_manager.stop_role('side')
+with col_start:
+    if st.button("▶️ START", width="stretch", type="primary"):
+        controller.start_cameras(front_id=front_cam_idx, side_id=side_cam_idx)
+        st.session_state['app_active'] = True
+        st.rerun()
 
-    st.session_state['app_active'] = True
+with col_stop:
+    if st.button("⏹️ STOP", width="stretch"):
+        controller.stop_cameras()
+        st.session_state['app_active'] = False
+        st.rerun()
 
-if col_stop.button("STOP SYSTEM"):
-    camera_manager.stop_all()
-    st.session_state['app_active'] = False
+if st.sidebar.button("🔄 Rescan Cameras"):
+    st.session_state['available_cams'] = controller.camera_manager.passive_scan()
+    st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("Voice Command Status")
-status_text = st.sidebar.empty()
-cmd_text = st.sidebar.empty()
-reps_text = st.sidebar.empty()
 
-# --- 4. MAIN LAYOUT ---
+# --- Exercise Selection ---
+st.sidebar.subheader("🎯 Exercise")
+exercise_options = ["None"] + list(EXERCISE_REGISTRY.keys())
+current_exercise = controller._current_exercise_name if controller._current_exercise_name != "None" else "None"
+try:
+    current_index = exercise_options.index(current_exercise)
+except ValueError:
+    current_index = 0
+
+selected_exercise = st.sidebar.selectbox("Select Exercise", options=exercise_options, index=current_index)
+if selected_exercise != "None" and selected_exercise != current_exercise:
+    controller.inject_command(selected_exercise)
+
+st.sidebar.markdown("---")
+
+# --- Controls ---
+st.sidebar.subheader("🎮 Controls")
+c1, c2, c3 = st.sidebar.columns(3)
+if c1.button("▶️ Start", width="stretch"): controller.inject_command("start")
+if c2.button("⏸️ Stop", width="stretch"): controller.inject_command("end")
+if c3.button("🔄 Reset", width="stretch"): controller.inject_command("reset")
+
+# =============================================================================
+# MAIN CONTENT AREA
+# =============================================================================
+
+st.title("CyberTrener AI")
 col_front, col_side = st.columns(2)
+
 with col_front:
-    st.header("Front View")
+    st.subheader("📷 Front View")
     front_placeholder = st.empty()
 
 with col_side:
-    st.header("Side View")
+    st.subheader("📷 Side View")
     side_placeholder = st.empty()
 
+stats_cols = st.columns(4)
+stat_exercise = stats_cols[0].empty()
+stat_reps = stats_cols[1].empty()
+stat_state = stats_cols[2].empty()
+stat_errors = stats_cols[3].empty()
 
-# --- 5. HELPERS ---
-def get_current_exercise_logic(exercise_name):
-    name = exercise_name.lower()
-    if name == "plank": return Plank()
-    if name == "sit ups": return SitUp()
-    if name == "bicep curl": return BicepCurl()
-    if name == "lateral raise": return LateralRaise()
-    if name == "press": return OverheadPress()
-    return None
+# =============================================================================
+# MAIN LOOP (OPTIMIZED)
+# =============================================================================
 
-
-def create_placeholder_frame(text="NO SIGNAL"):
-    blk = np.zeros((480, 640, 3), dtype=np.uint8)
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 1.0
-    thickness = 2
-    text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
-    text_x = (640 - text_size[0]) // 2
-    text_y = (480 + text_size[1]) // 2
-    cv2.putText(blk, text, (text_x, text_y), font, font_scale, (100, 100, 100), thickness)
-    return blk
-
-
-# --- 6. MAIN LOOP ---
 if st.session_state.get('app_active', False):
 
-    current_exercise_name = state_manager.last_spoken_word
-    exercise_logic = get_current_exercise_logic(current_exercise_name)
+    # PARAMETRY OPTYMALIZACJI
+    DISPLAY_W, DISPLAY_H = 480, 360  # Jeszcze mniejsza rozdzielczość dla UI (płynniej)
+    UI_UPDATE_DIVIDER = 3  # Aktualizuj UI co 3 klatkę (Logika co 1 klatkę)
+    frame_counter = 0
 
     while True:
-        # A. UI Updates
-        status_icon = "🟢" if state_manager.is_tracking else "🔴"
-        status_label = "Tracking" if state_manager.is_tracking else "Waiting"
+        # 1. LOGIKA - ZAWSZE (Dla precyzji wykrywania ruchu)
+        result = controller.process_frame()
+        stats = result['stats']
 
-        status_text.markdown(f"**Status:** {status_icon} {status_label}")
-        cmd_text.markdown(f"**Exercise:** {state_manager.last_spoken_word}")
-        reps_text.markdown(f"**Reps:** {state_manager.reps}")
+        # 2. UI - TYLKO CO 'N' KLATEK (Dla wydajności przeglądarki)
+        if frame_counter % UI_UPDATE_DIVIDER == 0:
 
-        # B. Handle Reset Command
-        if state_manager.is_reset:
-            if exercise_logic:
-                if hasattr(exercise_logic, 'reset_stats'):
-                    exercise_logic.reset_stats()
-                elif hasattr(exercise_logic, 'reset'):
-                    exercise_logic.reset()
-            state_manager.reps = 0
-            state_manager.is_reset = 0
+            # --- Update Texts (Metryki też obciążają, więc robimy rzadziej) ---
+            stat_exercise.metric("Exercise", stats.exercise_name.title())
+            stat_reps.metric("Reps", stats.reps)
+            stat_state.metric("Phase", stats.exercise_state)
 
-        # C. Logic Switching
-        if state_manager.last_spoken_word != current_exercise_name:
-            current_exercise_name = state_manager.last_spoken_word
-            exercise_logic = get_current_exercise_logic(current_exercise_name)
-            if exercise_logic:
-                if hasattr(exercise_logic, 'reset_stats'):
-                    exercise_logic.reset_stats()
-                elif hasattr(exercise_logic, 'reset'):
-                    exercise_logic.reset()
+            if stats.errors:
+                stat_errors.error(f"⚠️ {stats.errors[0]}")
+            else:
+                stat_errors.success("✅ OK")
 
-        # D. Get Frames
-        frame_front = camera_manager.get_frame('front')
+            # --- Render Front Camera ---
+            if result['front'].is_available and result['front'].frame is not None:
+                # Klonujemy klatkę i nakładamy rysunki
+                disp_frame = result['front'].frame.copy()
+                disp_frame = render_frame_with_overlay(disp_frame, result['front'].landmarks, stats, visualizer)
 
-        # [FIX 2] Obsługa Single Mode dla klatek
-        if single_mode:
-            frame_side = frame_front.copy() if frame_front is not None else None
-        else:
-            frame_side = camera_manager.get_frame('side')
+                # Resize + Convert
+                disp_frame = cv2.resize(disp_frame, (DISPLAY_W, DISPLAY_H))
+                disp_frame = cv2.cvtColor(disp_frame, cv2.COLOR_BGR2RGB)
+                front_placeholder.image(disp_frame, width="stretch")
 
-        # --- FRONT CAMERA HANDLING ---
-        if frame_front is not None:
-            landmarks = detector_front.detect(frame_front)
+            # --- Render Side Camera ---
+            if result['side'].is_available and result['side'].frame is not None:
+                disp_frame = result['side'].frame.copy()
+                if result['side'].landmarks:
+                    visualizer.draw_skeleton(disp_frame, result['side'].landmarks, has_error=False)
 
-            # [FIX 1] Aplikacja wygładzania
-            if landmarks:
-                landmarks = smoother_front.update(landmarks)
+                disp_frame = cv2.resize(disp_frame, (DISPLAY_W, DISPLAY_H))
+                disp_frame = cv2.cvtColor(disp_frame, cv2.COLOR_BGR2RGB)
+                side_placeholder.image(disp_frame, width="stretch")
 
-            feedback = []
-            if state_manager.is_tracking and exercise_logic and landmarks:
-                exercise_logic.update(landmarks)
-                state_manager.reps = exercise_logic.reps_count
-                if hasattr(exercise_logic, 'errors'):
-                    feedback = exercise_logic.errors
+            # Mały sleep tylko w klatce renderowania UI, żeby dać oddech przeglądarce
+            time.sleep(0.01)
 
-            _ = visualizer.draw_skeleton(frame_front, landmarks, has_error=bool(feedback))
-            _ = visualizer.draw_panel(
-                frame_front,
-                reps=state_manager.reps,
-                exercise_name=current_exercise_name,
-                errors=feedback
-            )
-            front_placeholder.image(cv2.cvtColor(frame_front, cv2.COLOR_BGR2RGB), width="stretch")
-        else:
-            placeholder = create_placeholder_frame("NO CAMERA / LOADING...")
-            front_placeholder.image(placeholder, width="stretch")
-
-        # --- SIDE CAMERA HANDLING ---
-        if frame_side is not None:
-            # Używamy osobnego detektora dla boku
-            lm_side = detector_side.detect(frame_side)
-
-            # [FIX 1] Wygładzanie dla boku (osobna instancja)
-            if lm_side:
-                lm_side = smoother_side.update(lm_side)
-
-            _ = visualizer.draw_skeleton(frame_side, lm_side, has_error=False)
-            side_placeholder.image(cv2.cvtColor(frame_side, cv2.COLOR_BGR2RGB), width="stretch")
-        else:
-            placeholder_side = create_placeholder_frame("SIDE CAM OFF")
-            side_placeholder.image(placeholder_side, width="stretch")
-
-        # Prevent CPU hogging
-        if frame_front is None and frame_side is None:
-            time.sleep(0.1)
+        # Inkrementacja licznika
+        frame_counter += 1
 
 else:
-    front_placeholder.info("System stopped. Press 'START SYSTEM' in the sidebar.")
+    front_placeholder.info("Press START")
+    side_placeholder.info("Press START")
