@@ -33,17 +33,17 @@ class TextToSpeechManager:
         self.queue.put(None)
         self.thread.join()
 
-if __name__ == "__main__":
-    tts_manager = TextToSpeechManager()
-
-    # add stuff you want spoken into the queue
-    tts_manager.add_to_queue("Hello, this is the first message.")
-    tts_manager.add_to_queue("Here's the second message.")
-    tts_manager.add_to_queue("And finally, the third message.")
-
-    # Simulate some other work in parallel
-    for i in range(50):
-        print(f"Main program doing work {i+1}...")
-        time.sleep(1)
-
-    tts_manager.stop()
+# if __name__ == "__main__":
+#     tts_manager = TextToSpeechManager()
+#
+#     # add stuff you want spoken into the queue
+#     tts_manager.add_to_queue("Hello, this is the first message.")
+#     tts_manager.add_to_queue("Here's the second message.")
+#     tts_manager.add_to_queue("And finally, the third message.")
+#
+#     # Simulate some other work in parallel
+#     for i in range(50):
+#         print(f"Main program doing work {i+1}...")
+#         time.sleep(1)
+#
+#     tts_manager.stop()

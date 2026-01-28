@@ -3,6 +3,7 @@ import speech_recognition as sr
 import threading
 import queue
 import json
+import time
 
 # Spróbuj zaimportować Vosk, jeśli jest dostępny
 try:
@@ -17,6 +18,7 @@ class ExerciseListener(threading.Thread):
     def __init__(self,command_queue):
         super().__init__(daemon=True)
         self.queue = command_queue
+        self.sleep = 0
         self.commands = [
             "start", "end", "next", "previous", "reset", "plank", "sit ups", "bicep curl", "lateral raise", "press"
         ]
@@ -28,17 +30,20 @@ class ExerciseListener(threading.Thread):
         else:
             print("Mikrofon wykryty i gotowy.")
 
-        # Próba załadowania modelu Vosk (offline)
-        self.model_loaded = False
         if VOSK_AVAILABLE:
             try:
-                # Folder 'model' musi być w tym samym katalogu co skrypt
                 self.vosk_model = Model("src/audio/vosk-model-small-en-us-0.15")
-                self.recognizer = KaldiRecognizer(self.vosk_model, self.sample_rate)
+
+                # 2. OPTYMALIZACJA: Tworzymy filtr gramatyczny
+                # Vosk będzie teraz ignorował słowa spoza tej listy (oraz [unk] dla nieznanych)
+                grammar = json.dumps(self.commands + ["[unk]"])
+                self.recognizer = KaldiRecognizer(self.vosk_model, self.sample_rate, grammar)
+
                 self.model_loaded = True
-                print("Załadowano silnik offline (Vosk).")
+                print("Załadowano silnik offline z ograniczoną gramatyką.")
             except Exception as e:
-                print(f"Vosk niezaładowany (brak folderu 'model'). Używam Google API. Info: {e}")
+                print(f"Błąd ładowania modelu: {e}")
+                self.model_loaded = False
 
     def check_microphone(self):
         devices = sd.query_devices()
@@ -46,21 +51,25 @@ class ExerciseListener(threading.Thread):
         return len(input_devices) > 0
 
     def run(self):
-        # Używamy sounddevice do przechwytywania dźwięku
         with sd.RawInputStream(samplerate=self.sample_rate, blocksize=8000,
                                dtype='int16', channels=1) as stream:
-            print("Nasłuchiwanie komend...")
+            print("Nasłuchiwanie (tylko zdefiniowane komendy)...")
             while True:
-                data, overflow = stream.read(4000)
-                if overflow:
+                if self.sleep:
+                    time.sleep(0.1)
                     continue
 
+                data, _ = stream.read(4000)
                 if self.model_loaded:
                     if self.recognizer.AcceptWaveform(bytes(data)):
                         result = json.loads(self.recognizer.Result())
-                        command = self.process_text(result.get("text", ""))
-                        if command is not None:
-                            self.queue.put(command)
+                        text = result.get("text", "")
+
+                        # Ponieważ mamy gramatykę, text będzie ALBO pusty,
+                        # ALBO będzie zawierał dokładnie jedną z naszych komend.
+                        if text in self.commands:
+                            print(f"Wyryto komendę: {text}")
+                            self.queue.put(text)
 
     def process_text(self, text):
         if not text:

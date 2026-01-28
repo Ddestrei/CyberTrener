@@ -19,6 +19,8 @@ from src.ui.visualizer import Visualizer
 from src.exercises.plank import Plank
 from src.exercises.situp import SitUp
 from src.exercises.bicep_curl import BicepCurl
+from src.exercises.lateral_raise import LateralRaise
+from src.exercises.overhead_press import OverheadPress
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(layout="wide", page_title="CyberTrener AI")
@@ -91,6 +93,8 @@ def get_current_exercise_logic(exercise_name):
     if name == "plank": return Plank()
     if name == "sit ups": return SitUp()
     if name == "bicep curl": return BicepCurl()
+    if name == "lateral raise": return LateralRaise()
+    if name == "press": return OverheadPress()
     return None
 
 def create_placeholder_frame(text="NO SIGNAL"):

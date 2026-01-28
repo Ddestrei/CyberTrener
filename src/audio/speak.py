@@ -7,6 +7,10 @@ import pyttsx3
 
 def init_engine():
     engine = pyttsx3.init()
+    engine.setProperty('rate', 140)
+    voices = engine.getProperty('voices')
+    engine.setProperty('voice', voices[1].id)
+    engine.setProperty('volume', 1.0)
     return engine
 
 def say(s):
