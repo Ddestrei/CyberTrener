@@ -256,6 +256,7 @@ class WorkoutController:
                 exercise_state_str = self._current_exercise.state.value
                 self._announce_errors(errors)
 
+
         # 4. Build State
         stats = WorkoutStats(
             exercise_name=self._current_exercise_name,
