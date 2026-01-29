@@ -36,62 +36,6 @@ class SitUp(ExerciseBase):
         else:
             return landmarks[12], landmarks[24], landmarks[26], landmarks[28]  # Right side
 
-    # def check_conditions(
-    #         self,
-    #         side_landmarks: list[dict[str, float]],
-    #         front_landmarks: Optional[list[dict[str, float]]] = None
-    # ) -> ExerciseState:
-    #
-    #     # 1. Pobranie kluczowych punktów
-    #     shoulder, hip, knee, ankle = self._get_best_side_landmarks(side_landmarks)
-    #
-    #     # 2. Obliczenie głównego kąta (zgięcie w biodrze)
-    #     raw_angle = calculate_angle(shoulder, hip, knee)
-    #     # Normalizacja do <180 (interesuje nas kąt wewnętrzny)
-    #     self.current_hip_angle = raw_angle if raw_angle <= 180 else 360 - raw_angle
-    #     print(self.current_hip_angle)
-    #
-    #     # 3. Wykrywanie błędów: Odrywanie stóp
-    #     # Sprawdzamy relatywną różnicę Y między kolanem a kostką.
-    #     # W pozycji startowej (nogi ugięte) kolano jest wyżej (mniejsze Y) niż kostka.
-    #     # Jeśli kostka idzie w górę (jej Y maleje), różnica maleje.
-    #     knee_ankle_diff = ankle['y'] - hip['y']
-    #     print(f"knee_ankle_diff: {knee_ankle_diff}")
-    #     # Jeśli różnica jest zbyt mała (stopy na poziomie kolan) -> błąd
-    #     # Wartość progowa 0.05 jest eksperymentalna, zależy od ugięcia kolan startowego.
-    #     if knee_ankle_diff < 0.00:
-    #         self.rep_had_error = True
-    #         if "Keep feet on ground!" not in self.errors:
-    #             self.add_error("Keep feet on ground!")
-    #
-    #     # 4. Maszyna Stanów
-    #
-    #     # STAN: WAITING (Oczekiwanie na dole)
-    #     if self.state == ExerciseState.WAITING:
-    #         # Użytkownik musi leżeć płasko
-    #         print(self.current_hip_angle)
-    #         if self.current_hip_angle > self.ANGLE_LYING_MIN:
-    #             self.rep_had_error = False
-    #             self.errors.clear()
-    #             return ExerciseState.CONCENTRIC
-    #
-    #     # STAN: CONCENTRIC (Ruch w górę - spięcie brzucha)
-    #     elif self.state == ExerciseState.CONCENTRIC:
-    #         # Sprawdzamy czy osiągnął szczyt ruchu
-    #         if self.current_hip_angle < self.ANGLE_SITUP_MAX:
-    #             return ExerciseState.ECCENTRIC
-    #
-    #     # STAN: ECCENTRIC (Ruch w dół - powrót)
-    #     elif self.state == ExerciseState.ECCENTRIC:
-    #         # Powrót do leżenia
-    #         if self.current_hip_angle > self.ANGLE_LYING_MIN:
-    #             # Zaliczamy powtórzenie tylko jeśli wrócił na dół i nie było błędu krytycznego
-    #             if not self.rep_had_error:
-    #                 self.reps_count += 1
-    #             return ExerciseState.WAITING
-    #
-    #     return self.state
-
     def check_conditions(
             self,
             side_landmarks: list[dict[str, float]],
@@ -106,7 +50,7 @@ class SitUp(ExerciseBase):
 
         # 2. Sprawdzenie stóp (zawsze aktywne w tle)
         knee_hip_diff = ankle['y'] - hip['y']
-        print(f"knee_hip_diff {knee_hip_diff}")
+
         # Jeśli jesteśmy w trakcie ćwiczenia (nie leżymy), sprawdzaj stopy
         if self.state != ExerciseState.WAITING:
             if knee_hip_diff < self.FEET_LIFT_THRESHOLD:
@@ -136,7 +80,7 @@ class SitUp(ExerciseBase):
             # B. PORAŻKA (Niepełny ruch):
             # User nie dobił do 60, a wrócił już do leżenia (> 150)
             if self.current_hip_angle > self.ANGLE_LYING:
-                self.add_error("Incomplete rep! Go lower than 60°")
+                self.add_error("Incomplete rep! Go deeper")
                 self.rep_had_error = True
                 # Wracamy do waitingu bez zaliczenia
                 return ExerciseState.WAITING
