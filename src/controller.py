@@ -49,6 +49,7 @@ class WorkoutStats:
     is_tracking: bool = False
     front_cam_online: bool = False
     side_cam_online: bool = False
+    current_angle: float = 0.0  # [NEW]
 
 
 EXERCISE_REGISTRY = {
@@ -245,6 +246,7 @@ class WorkoutController:
         # 3. Exercise Logic
         errors = []
         exercise_state_str = "WAITING"
+        angle_to_display = 0.0  # [NEW]
 
         if self._is_tracking and self._current_exercise:
             primary_landmarks = self._get_primary_landmarks(front_data, side_data)
@@ -254,6 +256,7 @@ class WorkoutController:
                 self._current_exercise.update(primary_landmarks, secondary_landmarks)
                 errors = self._current_exercise.errors.copy()
                 exercise_state_str = self._current_exercise.state.value
+                angle_to_display = getattr(self._current_exercise, 'current_angle', 0.0)
                 self._announce_errors(errors)
 
 
@@ -267,6 +270,7 @@ class WorkoutController:
             is_tracking=self._is_tracking,
             front_cam_online=front_data.is_available,
             side_cam_online=side_data.is_available,
+            current_angle=angle_to_display  # [NEW]
         )
 
         return {
@@ -361,6 +365,7 @@ class WorkoutController:
             exercise_state=self._current_exercise.state.value if self._current_exercise else "WAITING",
             errors=self._current_exercise.errors.copy() if self._current_exercise else [],
             is_tracking=self._is_tracking,
+            current_angle=getattr(self._current_exercise, 'current_angle', 0.0) if self._current_exercise else 0.0  # [NEW]
         )
 
     def inject_command(self, command: str) -> None:

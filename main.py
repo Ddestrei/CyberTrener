@@ -79,19 +79,22 @@ def create_placeholder_frame(text: str = "NO SIGNAL", width: int = 640, height: 
     return frame
 
 
-def render_frame_with_overlay(frame: np.ndarray, landmarks: list, stats: object, vis: Visualizer,
-                              show_skeleton: bool = True) -> np.ndarray:
-    if frame is None:
-        return create_placeholder_frame("NO CAMERA")
+def render_frame_with_overlay(frame, landmarks, stats, vis, show_skeleton=True):
+    """Utility to render frame with UI elements."""
+    if frame is None: return create_placeholder_frame("NO CAMERA")
 
-    # Rysuj szkielet tylko jeśli są dane
     if show_skeleton and landmarks:
-        has_error = len(stats.errors) > 0 if stats else False
-        vis.draw_skeleton(frame, landmarks, has_error=has_error)
+        vis.draw_skeleton(frame, landmarks, has_error=len(stats.errors) > 0)
 
-    # Rysuj panel statystyk
     if stats:
-        vis.draw_panel(frame, reps=stats.reps, exercise_name=stats.exercise_name, errors=stats.errors)
+        # Pass the angle from the stats object to the draw_panel method
+        vis.draw_panel(
+            frame, 
+            reps=stats.reps, 
+            exercise_name=stats.exercise_name, 
+            errors=stats.errors,
+            angle=stats.current_angle # This is our new placeholder data
+        )
 
     return frame
 
