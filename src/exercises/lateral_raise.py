@@ -1,4 +1,5 @@
-from typing import Optional
+from typing import Optional, Tuple, Dict
+import math
 from src.exercises.base import ExerciseBase, ExerciseState
 from src.utils.geometry import calculate_angle
 
@@ -7,68 +8,134 @@ class LateralRaise(ExerciseBase):
     def __init__(self):
         super().__init__()
         self.name = "Lateral Raise"
-        # Angular thresholds
-        self.ARMS_DOWN = 30.0  # Starting position (arms at sides)
-        self.ARMS_UP_MIN = 80.0  # Minimum height for a valid repetition
-        self.ARMS_UP_MAX = 120.0  # Maximum height (to prevent shrugging/overhead movement)
-        self.TRUNK_STABILITY_LIMIT = 22.0  # Maximum allowed torso swing (side view)
+
+        # --- PROGI RUCHU (Shoulder Abduction) ---
+        # 0 stopni to ręka pionowo w dół, 90 stopni to ręka równolegle do podłogi
+        self.ANGLE_START = 20.0  # Ręce przy tułowiu
+        self.ANGLE_START_TRIGGER = 35.0
+        self.ANGLE_PEAK = 80.0  # Minimalna wysokość wznosu (szczyt)
+        self.ANGLE_TOO_HIGH = 115
+
+        # --- PROGI BŁĘDÓW ---
+        self.MAX_TORSO_SWING = 12.0  # Bujanie przód-tył (kamera boczna)
+        self.MAX_ELBOW_BENT = 150.0  # Jeśli kąt w łokciu < 150, ręka jest zbyt zgięta
+        self.MAX_SPINE_LATERAL = 10.0  # Przechylanie się na boki (kamera przednia)
 
         self.rep_had_error = False
+        self.current_abduction_angle = 0.0
+
+    def _get_arm_landmarks(self, landmarks: list[dict[str, float]]) -> Tuple[str, Dict, Dict, Dict, Dict, Dict]:
+        """Wykrywa aktywną stronę na podstawie widoczności (podobnie jak w bicep curl)."""
+        left_vis = (landmarks[11]['visibility'] + landmarks[13]['visibility'] + landmarks[15]['visibility']) / 3
+        right_vis = (landmarks[12]['visibility'] + landmarks[14]['visibility'] + landmarks[16]['visibility']) / 3
+
+        if left_vis > right_vis:
+            # Lewa strona: Bark(11), Łokieć(13), Nadgarstek(15), Biodro(23), Kolano(25)
+            return "left", landmarks[11], landmarks[13], landmarks[15], landmarks[23], landmarks[25]
+        else:
+            # Prawa strona: Bark(12), Łokieć(14), Nadgarstek(16), Biodro(24), Kolano(26)
+            return "right", landmarks[12], landmarks[14], landmarks[16], landmarks[24], landmarks[26]
+
+    def _calculate_vertical_angle(self, p1: Dict, p2: Dict) -> float:
+        """Kąt od pionu (z Twojej implementacji bicep_curl)."""
+        dx = p2['x'] - p1['x']
+        dy = p2['y'] - p1['y']
+        angle_rad = math.atan2(dx, dy)
+        return math.degrees(angle_rad)
+
+    def _check_side_errors(self, shoulder, hip):
+        """Kamera boczna: wykrywanie bujania tułowiem (momentum)."""
+        torso_angle = abs(self._calculate_vertical_angle(shoulder, hip))
+        if torso_angle > self.MAX_TORSO_SWING:
+            self.rep_had_error = True
+            self.add_error("Don't swing! Keep torso still.")
+
+    def _check_front_errors(self, front_landmarks: list[dict], active_side: str, elbow_angle: float):
+        """Kamera przednia: stabilność kręgosłupa i zgięcie łokcia."""
+
+        # 1. Stabilność kręgosłupa (identycznie jak w curl)
+        l_shoulder, r_shoulder = front_landmarks[11], front_landmarks[12]
+        l_hip, r_hip = front_landmarks[23], front_landmarks[24]
+
+        mid_shoulder_x = (l_shoulder['x'] + r_shoulder['x']) / 2
+        mid_shoulder_y = (l_shoulder['y'] + r_shoulder['y']) / 2
+        mid_hip_x = (l_hip['x'] + r_hip['x']) / 2
+        mid_hip_y = (l_hip['y'] + r_hip['y']) / 2
+
+        spine_lean = abs(self._calculate_vertical_angle(
+            {'x': mid_shoulder_x, 'y': mid_shoulder_y},
+            {'x': mid_hip_x, 'y': mid_hip_y}
+        ))
+
+        if spine_lean > self.MAX_SPINE_LATERAL:
+            self.rep_had_error = True
+            self.add_error("Keep your spine vertical!")
+
+        # 2. Zbyt mocno zgięte łokcie (T-Rex arms)
+        # W lateral raise dopuszczalne jest lekkie ugięcie, ale nie "pompowanie" łokciami
+        if elbow_angle < self.MAX_ELBOW_BENT:
+            self.rep_had_error = True
+            self.add_error("Keep arms straighter!")
 
     def check_conditions(
             self,
             side_landmarks: list[dict[str, float]],
             front_landmarks: Optional[list[dict[str, float]]] = None
     ) -> ExerciseState:
-        """
-        Analyzes movement using the side camera as the primary source for stability
-        and the front camera (if available) for measuring arm elevation height.
-        """
-        # 1. TRUNK STABILITY (Best visible from the side)
-        # Angle: Shoulder (12) -> Hip (24) -> Knee (26)
-        raw_trunk = calculate_angle(side_landmarks[12], side_landmarks[24], side_landmarks[26])
-        trunk_angle = raw_trunk if raw_trunk <= 180 else 360 - raw_trunk
-        trunk_deviation = abs(180.0 - trunk_angle)
 
-        if trunk_deviation > self.TRUNK_STABILITY_LIMIT:
+        # 1. Pobranie punktów
+        side_name, shoulder, elbow, wrist, hip, knee = self._get_arm_landmarks(side_landmarks)
+
+        # 2. Obliczenie kątów
+        # Główny kąt: Odwiedzenie barku (Hip -> Shoulder -> Elbow)
+        # Używamy calculate_angle, żeby sprawdzić jak wysoko są łokcie względem tułowia
+        self.current_abduction_angle = calculate_angle(hip, shoulder, elbow)
+
+        if self.current_abduction_angle > 180:
+            self.current_abduction_angle = 360 -self.current_abduction_angle
+
+        print(f"current_abduction_angle {self.current_abduction_angle}")
+        # Pomocniczy kąt: Zgięcie łokcia (Shoulder -> Elbow -> Wrist) do walidacji techniki
+        elbow_angle = calculate_angle(shoulder, elbow, wrist)
+
+        # 3. SPRAWDZANIE BŁĘDÓW
+        if self.state != ExerciseState.WAITING or self.reps_count != 0:
+            self._check_side_errors(shoulder, hip)
+            if front_landmarks:
+                self._check_front_errors(front_landmarks, side_name, elbow_angle)
+
+        if self.current_abduction_angle > self.ANGLE_TOO_HIGH:
+            self.add_error("Arms are too high!")
             self.rep_had_error = True
-            if "Stop swinging your body!" not in self.errors:
-                self.add_error("Stop swinging your body!")
+            return ExerciseState.WAITING
 
-        # 2. ARM ELEVATION (Prefer front view if available, otherwise use side view)
-        target_landmarks = front_landmarks if front_landmarks else side_landmarks
-
-        # Angle: Hip (24) -> Shoulder (12) -> Elbow (14)
-        raw_arm = calculate_angle(target_landmarks[24], target_landmarks[12], target_landmarks[14])
-        arm_angle = raw_arm if raw_arm <= 180 else 360 - raw_arm
-
-        # 3. STATE MACHINE LOGIC (Consistent with BicepCurl)
-        # WAITING: Waiting for arms to be lowered to start the concentric phase
+        # 4. MASZYNA STANÓW
+        # STAN: WAITING (Ręce w dole)
         if self.state == ExerciseState.WAITING:
-            if arm_angle < self.ARMS_DOWN:
-                self.rep_had_error = False
+            if self.current_abduction_angle < self.ANGLE_START:
                 self.errors.clear()
+                self.rep_had_error = False
+
+            if self.current_abduction_angle > self.ANGLE_START_TRIGGER:
                 return ExerciseState.CONCENTRIC
 
-        # CONCENTRIC: Lifting phase - count repetition at the peak
+        # STAN: CONCENTRIC (Ruch w górę)
         elif self.state == ExerciseState.CONCENTRIC:
-            if arm_angle > self.ARMS_UP_MIN:
-                if arm_angle < self.ARMS_UP_MAX:
-                    # Increment rep count only if no technical errors were detected
-                    if not self.rep_had_error:
-                        self.reps_count += 1
-                    return ExerciseState.ECCENTRIC
-                else:
-                    # If arms went too high, reset to WAITING without counting the rep
-                    return ExerciseState.WAITING
+            # Sukces - osiągnięcie poziomu barków
+            if self.current_abduction_angle > self.ANGLE_PEAK:
+                return ExerciseState.ECCENTRIC
 
-        # ECCENTRIC: Lowering phase - looking for extension to start over
+            # Błąd - powrót na dół przed osiągnięciem góry
+            if self.current_abduction_angle < self.ANGLE_START:
+                self.add_error("Go higher! Parallel to the floor.")
+                return ExerciseState.WAITING
+
+        # STAN: ECCENTRIC (Ruch w dół)
         elif self.state == ExerciseState.ECCENTRIC:
-            if arm_angle < self.ARMS_DOWN:
-                self.rep_had_error = False
-                self.errors.clear()
-                # Return directly to searching for the lifting phase (consistent with BicepCurl)
-                return ExerciseState.CONCENTRIC
+            if self.current_abduction_angle < self.ANGLE_START:
+                if not self.rep_had_error:
+                    self.reps_count += 1
+                return ExerciseState.WAITING
 
         return self.state
 
@@ -77,9 +144,5 @@ class LateralRaise(ExerciseBase):
             side_landmarks: list[dict[str, float]],
             front_landmarks: Optional[list[dict[str, float]]] = None
     ) -> None:
-        """
-        Main update method. Directly assigns the state to bypass
-        the automatic logic from the base class.
-        """
         if side_landmarks:
             self.state = self.check_conditions(side_landmarks, front_landmarks)

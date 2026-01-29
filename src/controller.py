@@ -84,6 +84,9 @@ class WorkoutController:
         self.tts_manager = tts_manager
         self.command_queue = command_queue or queue.Queue()
 
+        self.last_speach = ""
+        self.last_speach_time = None
+
         self._detector_front = PoseDetector()
         self._detector_side = PoseDetector()
 
@@ -329,24 +332,22 @@ class WorkoutController:
     # TTS & API (Bez zmian)
     # =========================================================================
 
-    def _speak(self, text: str, force: bool = False) -> None:
+    def _speak(self, text: str) -> None:
         if self.tts_manager is None: return
-        current_time = time.time()
-        if force or (current_time - self._last_tts_time) >= self.TTS_COOLDOWN:
+        if self.last_speach != text:
+            #print(self.last_speach)
             self.tts_manager.add_to_queue(text)
-            self._last_tts_time = current_time
+            self.last_speach = text
+            self.last_speach_time = time.time()
+        else:
+            #print(time.time() - self.last_speach_time)
+            if time.time() - self.last_speach_time > 2:
+                self.tts_manager.add_to_queue(text)
+                self.last_speach_time = time.time()
 
     def _announce_errors(self, errors: List[str]) -> None:
-        if not errors or self.tts_manager is None: return
-        current_time = time.time()
-        if (current_time - self._last_error_announce_time) < self.ERROR_ANNOUNCE_COOLDOWN:
-            return
-        new_errors = set(errors) - self._last_announced_errors
-        if new_errors:
-            error_msg = next(iter(new_errors))
-            self.tts_manager.add_to_queue(error_msg)
-            self._last_error_announce_time = current_time
-            self._last_announced_errors = set(errors)
+        if len(errors) > 0:
+            self._speak(errors[0])
 
     def set_exercise(self, exercise_name: str) -> bool:
         if exercise_name.lower() not in EXERCISE_REGISTRY: return False

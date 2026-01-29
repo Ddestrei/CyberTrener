@@ -12,7 +12,7 @@ class BicepCurl(ExerciseBase):
         # --- PROGI RUCHU (ROM) ---
         self.ANGLE_START = 160.0  # Ręka wyprostowana (dół)
         self.ANGLE_START_TRIGGER = 130
-        self.ANGLE_PEAK = 20.0  # Pełne zgięcie (góra) - dociągnięcie
+        self.ANGLE_PEAK = 25.0  # Pełne zgięcie (góra) - dociągnięcie
 
         # --- PROGI BŁĘDÓW (SIDE VIEW) ---
         self.MAX_TORSO_SWING = 10.0  # Max odchylenie pleców od pionu
@@ -62,7 +62,6 @@ class BicepCurl(ExerciseBase):
         # Jeśli odchylenie jest zbyt duże (czy to w przód, czy w tył)
         if abs(upper_arm_angle) > self.MAX_ELBOW_DRIFT:
             self.rep_had_error = True
-            # print("Keep elbow fixed under shoulder!")
             # Możemy uściślić komunikat w przyszłości, sprawdzając znak kąta
             self.add_error("Keep elbow fixed under shoulder!")
 
@@ -70,7 +69,6 @@ class BicepCurl(ExerciseBase):
         # Kąt tułowia (Bark -> Biodro) względem pionu.
         torso_angle = abs(self._calculate_vertical_angle(shoulder, hip))
 
-        # print(f"torso_angle {torso_angle}")
         if torso_angle > self.MAX_TORSO_SWING:
             self.rep_had_error = True
             self.add_error("Keep back straight!")
@@ -128,8 +126,6 @@ class BicepCurl(ExerciseBase):
         if wrist_elbow_diff_x > max_allowed_deviation:
             self.rep_had_error = True
             # Wypisujemy wartość dla debugowania (możesz usunąć printa później)
-            print(f"Wrist drift: {wrist_elbow_diff_x:.3f} > {max_allowed_deviation:.3f}")
-
             if "Keep wrist aligned!" not in self.errors:
                 self.add_error("Keep wrist aligned!")
 
@@ -145,7 +141,6 @@ class BicepCurl(ExerciseBase):
         # 2. Obliczenie głównego kąta (zgięcie łokcia)
         raw_angle = calculate_angle(shoulder, elbow, wrist)
         self.current_elbow_angle = raw_angle if raw_angle <= 180 else 360 - raw_angle
-        print(f"current_elbow_angle {self.current_elbow_angle}")
 
         # 3. SPRAWDZANIE BŁĘDÓW (tylko gdy ćwiczymy, nie w spoczynku)
         if self.state != ExerciseState.WAITING or self.reps_count != 0:
@@ -168,12 +163,10 @@ class BicepCurl(ExerciseBase):
         # STAN: CONCENTRIC (Ruch w górę)
         elif self.state == ExerciseState.CONCENTRIC:
             # A. SUKCES - Dociągnięcie (< 60 stopni)
-            print(f"{self.current_elbow_angle}")
             if self.current_elbow_angle < self.ANGLE_PEAK:
                 return ExerciseState.ECCENTRIC
 
             if self.current_elbow_angle > self.ANGLE_START:
-                # print("Full range of motion! Pull higher")
                 self.add_error("Full range of motion! Pull higher")
                 return ExerciseState.WAITING
 

@@ -1,13 +1,6 @@
-# Source - https://stackoverflow.com/a
-# Posted by Sachin Hosmani
-# Retrieved 2026-01-18, License - CC BY-SA 4.0
-
 import threading
 import queue
-import subprocess
-import time
-import os
-import sys
+import pyttsx3 
 
 class TextToSpeechManager:
     def __init__(self):
@@ -16,34 +9,33 @@ class TextToSpeechManager:
         self.thread.start()
 
     def add_to_queue(self, phrase):
-        self.queue.put(phrase)
+        if phrase:
+            self.queue.put(phrase)
 
     def _process_queue(self):
+        try:
+            engine = pyttsx3.init()
+            engine.setProperty('rate', 140)
+            engine.setProperty('volume', 1.0)
+            voices = engine.getProperty('voices')
+            engine.setProperty('voice', voices[1].id)
+        except Exception as e:
+            print(f"[TTS] Błąd inicjalizacji silnika: {e}")
+            return
+
         while True:
             phrase = self.queue.get()
             if phrase is None:
                 break
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            script_path = os.path.join(current_dir, "speak.py")
 
-            subprocess.call([sys.executable, script_path,phrase])
+            try:
+                engine.say(phrase)
+                engine.runAndWait()
+            except Exception as e:
+                print(f"[TTS] Błąd odtwarzania: {e}")
+
             self.queue.task_done()
 
     def stop(self):
         self.queue.put(None)
         self.thread.join()
-
-# if __name__ == "__main__":
-#     tts_manager = TextToSpeechManager()
-#
-#     # add stuff you want spoken into the queue
-#     tts_manager.add_to_queue("Hello, this is the first message.")
-#     tts_manager.add_to_queue("Here's the second message.")
-#     tts_manager.add_to_queue("And finally, the third message.")
-#
-#     # Simulate some other work in parallel
-#     for i in range(50):
-#         print(f"Main program doing work {i+1}...")
-#         time.sleep(1)
-#
-#     tts_manager.stop()

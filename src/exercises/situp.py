@@ -47,7 +47,6 @@ class SitUp(ExerciseBase):
 
         raw_angle = calculate_angle(shoulder, hip, knee)
         self.current_hip_angle = raw_angle if raw_angle <= 180 else 360 - raw_angle
-
         # 2. Sprawdzenie stóp (zawsze aktywne w tle)
         knee_hip_diff = ankle['y'] - hip['y']
 

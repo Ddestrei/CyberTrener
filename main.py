@@ -40,7 +40,7 @@ def get_command_queue():
 @st.cache_resource
 def get_voice_listener(_command_queue):
     listener = ExerciseListener(_command_queue)
-    #listener.start()
+    listener.start()
     return listener
 
 
