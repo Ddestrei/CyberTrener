@@ -5,69 +5,69 @@ import atexit
 import glob
 import re
 import os
-import platform  # [NOWOŚĆ] Biblioteka do wykrywania systemu operacyjnego
+import platform  # To detect the operating system
 
-# [LOCK] Globalna blokada sprzętowa.
-# Zapobiega sytuacji "Device Busy" (Linux) oraz konfliktom dostępu (Windows),
-# gdy dwa wątki próbują jednocześnie inicjalizować kamerę.
+# [LOCK] Global hardware lock.
+# Prevents "Device Busy" (Linux) and access conflicts (Windows) 
+# when two threads attempt to initialize a camera simultaneously.
 hardware_lock = threading.Lock()
 
-# Sprawdzamy system raz przy starcie aplikacji.
-# Pozwala to na dobranie odpowiedniego sterownika (backendu) OpenCV.
+# Check system type once at startup.
+# This allows selecting the appropriate OpenCV video backend.
 IS_WINDOWS = (platform.system() == 'Windows')
 
 class VideoThread(threading.Thread):
     """
-    Klasa wątku obsługującego ciągły odczyt z kamery w tle.
-    Działa niezależnie od głównej pętli UI, co zapobiega zacinaniu się interfejsu.
+    Thread class handling continuous camera reading in the background.
+    Runs independently of the main UI loop to prevent interface freezing.
     """
     def __init__(self, src, name="Camera"):
         super().__init__()
-        self.src = src  # ID urządzenia (np. 0, 1)
+        self.src = src  # Device ID (e.g., 0, 1)
         self.name = name
         self.capture = None
         self.frame = None
         self.online = False
         self.error_msg = None 
         self._stop_event = threading.Event()
-        self.daemon = True # Wątek zginie automatycznie po zamknięciu aplikacji
+        self.daemon = True # Thread dies automatically when the app closes
 
     def run(self):
-        """Główna pętla wątku: inicjalizacja i pobieranie klatek."""
+        """Main thread loop: initialization and frame acquisition."""
         with hardware_lock:
-            # [CROSS-PLATFORM] Dobór backendu wideo
+            # [CROSS-PLATFORM] Video backend selection
             if IS_WINDOWS:
-                print(f"[{self.name}] Inicjalizacja CAM {self.src} (Windows DSHOW)...")
-                # Na Windows najszybszym i najnowszym standardem jest DirectShow
+                print(f"[{self.name}] Initializing CAM {self.src} (Windows DSHOW)...")
+                # On Windows, DirectShow is the fastest/standard standard
                 backend = cv2.CAP_DSHOW
             else:
-                print(f"[{self.name}] Inicjalizacja /dev/video{self.src} (Linux V4L2)...")
-                # Na Linux (Arch/Ubuntu) standardem jest Video4Linux2
+                print(f"[{self.name}] Initializing /dev/video{self.src} (Linux V4L2)...")
+                # On Linux (Arch/Ubuntu), Video4Linux2 is the standard
                 backend = cv2.CAP_V4L2
 
-            # Próba otwarcia kamery z wybranym sterownikiem
+            # Attempt to open camera with the selected driver
             self.capture = cv2.VideoCapture(self.src, backend)
             self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
             
-            # [PERFORMANCE] Konfiguracja strumienia wideo.
-            # 1. Wymuszenie rozdzielczości VGA (640x480).
-            #    Dwie kamery HD na jednym kontrolerze USB często przekraczają przepustowość.
+            # [PERFORMANCE] Video stream configuration.
+            # 1. Force VGA resolution (640x480).
+            #    Two HD cameras on one USB controller often exceed bandwidth.
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             self.capture.set(cv2.CAP_PROP_FPS, 60)
             
-            # 2. [LATENCY] Ustawienie bufora na 1 klatkę.
-            #    Kluczowe ustawienie! Mówimy sterownikowi, aby nie kolejkował starych klatek.
-            #    Dzięki temu zawsze widzimy obraz "na żywo", a nie z opóźnieniem.
+            # 2. [LATENCY] Set buffer size to 1 frame.
+            #    Crucial setting! Tells the driver not to queue old frames.
+            #    Ensures we always see "live" video rather than delayed footage.
             self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             
             if not self.capture.isOpened():
-                self.error_msg = "Nie można otworzyć (Zajęta/Brak)"
-                print(f"[{self.name}] BŁĄD: {self.error_msg}")
+                self.error_msg = "Could not open (Busy/Missing)"
+                print(f"[{self.name}] ERROR: {self.error_msg}")
                 
-                # Hint tylko dla użytkowników Linuxa (Windows nie używa modprobe)
+                # Hint for Linux users only (Windows doesn't use modprobe)
                 if not IS_WINDOWS and self.src >= 2:
-                    print(f"[{self.name}] HINT: Sprawdź v4l2loopback (exclusive_caps=1)")
+                    print(f"[{self.name}] HINT: Check v4l2loopback (exclusive_caps=1)")
                 
                 self.online = False
                 return
@@ -76,7 +76,7 @@ class VideoThread(threading.Thread):
             self.error_msg = None
             print(f"[{self.name}] START (Online).")
 
-        # Pętla odczytu (działa dopóki nie zatrzymamy wątku)
+        # Read loop (runs until the thread is stopped)
         while not self._stop_event.is_set():
             if not self.capture.isOpened():
                 self.online = False
@@ -84,34 +84,35 @@ class VideoThread(threading.Thread):
             
             ret, frame = self.capture.read()
             if ret:
-                # Odbicie lustrzane (Mirror) - bardziej naturalne dla użytkownika
+                # Mirroring - provides a more natural experience for the user
                 self.frame = cv2.flip(frame, 1)
             else:
-                # Krótki odpoczynek jeśli brak klatki (np. kamera się inicjalizuje)
+                # Short rest if no frame is returned (e.g., camera initializing)
                 time.sleep(0.01)
             
-            # [CPU SAVER] Mikro-sleep, aby wątek nie zużywał 100% rdzenia CPU
+            # [CPU SAVER] Micro-sleep to prevent the thread from consuming 100% of a CPU core
             time.sleep(0.005)
 
         self._release()
 
     def _release(self):
-        """Bezpieczne zwalnianie zasobów kamery."""
+        """Safely release camera resources."""
         with hardware_lock:
             if self.capture and self.capture.isOpened():
                 self.capture.release()
             self.online = False
-            print(f"[{self.name}] Zatrzymano.")
+            print(f"[{self.name}] Stopped.")
 
     def get_frame(self, resize_width=None):
         """
-        Zwraca kopię ostatniej klatki.
-        Obsługuje skalowanie (resize) PRZED wysłaniem do UI, co drastycznie zwiększa FPS.
+        Returns a copy of the latest frame.
+        Supports resizing BEFORE sending to the UI, which drastically increases FPS.
         """
         if self.frame is not None:
             f = self.frame.copy()
             if resize_width:
-                # Skalowanie z zachowaniem proporcji (Aspect Ratio)
+                # Aspect ratio-preserving scaling:
+                # $$aspect = \frac{height}{width}$$
                 h, w = f.shape[:2]
                 aspect = h / w
                 new_h = int(resize_width * aspect)
@@ -120,41 +121,41 @@ class VideoThread(threading.Thread):
         return None
 
     def stop(self):
-        """Sygnał zatrzymania wątku."""
+        """Signal the thread to stop."""
         self._stop_event.set()
         if self.is_alive():
             self.join(timeout=1.0)
-        # Fallback: wymuszenie zwolnienia zasobów jeśli wątek wisi
+        # Fallback: force release resources if the thread hangs
         if self.capture and self.capture.isOpened():
             self._release()
 
 class CameraManager:
     """
-    Zarządca (Manager) obsługujący kamery na różnych systemach operacyjnych.
-    Powinien być używany jako Singleton (jedna instancja na aplikację).
+    Manager class handling cameras across different operating systems.
+    Should be used as a Singleton (one instance per application).
     """
     def __init__(self):
-        self.active_threads = {} # Słownik aktywnych wątków: {'front': Thread, ...}
-        atexit.register(self.stop_all) # Gwarancja sprzątania przy zamknięciu programu
+        self.active_threads = {} # Dictionary of active threads: {'front': Thread, ...}
+        atexit.register(self.stop_all) # Ensure cleanup when the program exits
 
     def passive_scan(self):
         """
-        [DISCOVERY] Wykrywanie dostępnych kamer.
-        Zachowanie różni się w zależności od systemu dla bezpieczeństwa.
+        [DISCOVERY] Detection of available cameras.
+        Behavior differs by system for safety reasons.
         """
-        print(f"[Manager] Skanowanie ({platform.system()})...")
-        self.stop_all() # Reset przed skanowaniem
+        print(f"[Manager] Scanning ({platform.system()})...")
+        self.stop_all() # Reset before scanning
         time.sleep(0.5)
         
         candidates = []
 
         if IS_WINDOWS:
-            # [WINDOWS] Skanowanie portów w pętli na Windowsie często zawiesza OpenCV.
-            # Bezpieczniej jest udostępnić użytkownikowi zakres ID 0-3.
-            # Użytkownik metodą prób i błędów wybierze właściwą kamerę.
+            # [WINDOWS] Scanning ports in a loop on Windows often freezes OpenCV.
+            # It's safer to provide the user with a range of IDs (0-3).
+            # The user can select the correct camera via trial and error.
             candidates = [0, 1, 2, 3]
         else:
-            # [LINUX] Możemy bezpiecznie sprawdzić pliki w /dev/video*
+            # [LINUX] We can safely check files in /dev/video*
             try:
                 files = sorted(glob.glob('/dev/video*'))
                 for f in files:
@@ -165,32 +166,32 @@ class CameraManager:
             except Exception:
                 candidates = [0, 1, 2]
 
-            # Fallback: zawsze dodajemy typowe porty dla OBS/DroidCam (np. 20)
+            # Fallback: always add typical ports for OBS/DroidCam (e.g., 20)
             for force_id in [0, 1, 2, 20]:
                 if force_id not in candidates and os.path.exists(f"/dev/video{force_id}"):
                     candidates.append(force_id)
 
         candidates = sorted(list(set(candidates)))
-        print(f"[Manager] Dostępne sloty: {candidates}")
+        print(f"[Manager] Available slots: {candidates}")
         return candidates
 
     def start_camera(self, role, src):
-        """Uruchamia kamerę (src) dla danej roli (role)."""
+        """Starts a camera (src) for a given role (role)."""
         curr = self.active_threads.get(role)
         
-        # Jeśli wątek już działa poprawnie - nie restartujemy go
+        # If the thread is already running correctly - do not restart it
         if curr and curr.is_alive() and curr.src == src and curr.online:
             return
 
-        # Jeśli zmiana źródła - zatrzymujemy stary wątek
+        # If the source changes - stop the old thread
         if curr:
             curr.stop()
         
-        # Start nowego wątku
+        # Start a new thread
         t = VideoThread(src, role)
         t.start()
         self.active_threads[role] = t
-        time.sleep(0.2) # Czas na inicjalizację sprzętu
+        time.sleep(0.2) # Hardware initialization time
 
     def get_frame(self, role, resize_width=None):
         t = self.active_threads.get(role)
@@ -199,22 +200,22 @@ class CameraManager:
         return None
     
     def get_status(self, role):
-        """Zwraca komunikat błędu, jeśli kamera nie działa."""
+        """Returns error message if the camera is not working."""
         t = self.active_threads.get(role)
         if t and not t.online and t.error_msg:
             return t.error_msg
         return None
 
     def stop_role(self, role):
-        """Zatrzymuje kamerę tylko dla jednej roli (np. Side)."""
+        """Stops the camera only for one role (e.g., Side)."""
         t = self.active_threads.get(role)
         if t:
             t.stop()
             del self.active_threads[role]
 
     def stop_all(self):
-        """Zatrzymuje wszystkie aktywne kamery."""
-        # [FIX] Kopiujemy listę wartości, aby uniknąć błędu
+        """Stops all active cameras."""
+        # [FIX] Copy the list of values to avoid:
         # "RuntimeError: dictionary changed size during iteration"
         threads_to_stop = list(self.active_threads.values())
         
